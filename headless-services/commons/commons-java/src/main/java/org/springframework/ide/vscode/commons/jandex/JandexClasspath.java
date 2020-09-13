@@ -1,9 +1,9 @@
 /*******************************************************************************
- * Copyright (c) 2017, 2018 Pivotal, Inc.
+ * Copyright (c) 2017, 2020 Pivotal, Inc.
  * All rights reserved. This program and the accompanying materials
  * are made available under the terms of the Eclipse Public License v1.0
  * which accompanies this distribution, and is available at
- * http://www.eclipse.org/legal/epl-v10.html
+ * https://www.eclipse.org/legal/epl-v10.html
  *
  * Contributors:
  *     Pivotal, Inc. - initial API and implementation
@@ -11,18 +11,12 @@
 package org.springframework.ide.vscode.commons.jandex;
 
 import java.io.File;
-import java.io.IOException;
-import java.net.URL;
-import java.nio.file.Files;
 import java.util.Arrays;
-import java.util.Collection;
 import java.util.HashSet;
 import java.util.LinkedList;
 import java.util.List;
-import java.util.Optional;
 import java.util.Queue;
 import java.util.Set;
-import java.util.function.Predicate;
 import java.util.stream.Stream;
 
 import org.slf4j.Logger;
@@ -31,15 +25,13 @@ import org.springframework.ide.vscode.commons.jandex.JandexIndex.JavadocProvider
 import org.springframework.ide.vscode.commons.java.ClasspathIndex;
 import org.springframework.ide.vscode.commons.java.IClasspath;
 import org.springframework.ide.vscode.commons.java.IClasspathUtil;
+import org.springframework.ide.vscode.commons.java.IJavaModuleData;
 import org.springframework.ide.vscode.commons.java.IType;
-import org.springframework.ide.vscode.commons.languageserver.jdt.ls.Classpath;
-import org.springframework.ide.vscode.commons.languageserver.jdt.ls.Classpath.CPE;
-import org.springframework.ide.vscode.commons.util.CollectorUtil;
+import org.springframework.ide.vscode.commons.protocol.java.Classpath;
 import org.springframework.ide.vscode.commons.util.FileObserver;
 
 import com.google.common.base.Supplier;
 import com.google.common.base.Suppliers;
-import com.google.common.collect.ImmutableList;
 
 import reactor.core.Disposable;
 import reactor.core.Disposables;
@@ -77,13 +69,7 @@ public final class JandexClasspath implements ClasspathIndex {
 	protected JandexIndex createIndex() {
 		log.info("Creating JandexIndex for "+classpath.getName());
 		attachFolderListeners();
-		Collection<File> classpathEntries = ImmutableList.of();
-		try {
-			classpathEntries = IClasspathUtil.getBinaryRoots(classpath, (cpe) -> !cpe.isSystem());
-		} catch (Exception e) {
-			log.error("Cannot obtain binary root from classpath entries for " + classpath.getName(), e);
-		}
-		return new JandexIndex(classpathEntries, jarFile -> findIndexFile(jarFile), javadocProviderFactory, getBaseIndices());
+		return new JandexIndex(classpath, jarFile -> findIndexFile(jarFile), javadocProviderFactory);
 	}
 
 	private Disposable.Composite subscriptions = Disposables.composite();
@@ -110,33 +96,35 @@ public final class JandexClasspath implements ClasspathIndex {
 	}
 
 	@Override
-	public Optional<URL> sourceContainer(File binaryClasspathRoot) {
-		CPE cpe = IClasspathUtil.findEntryForBinaryRoot(classpath, binaryClasspathRoot);
-		return cpe == null ? Optional.empty() : Optional.ofNullable(cpe.getSourceContainerUrl());
-	}
-
-	protected BasicJandexIndex[] getBaseIndices() {
-		return JandexSystemLibsIndex.getInstance().fromJars(IClasspathUtil.getBinaryRoots(classpath, CPE::isSystem));
-	}
-
-	@Override
 	public IType findType(String fqName) {
 		return javaIndex.get().findType(fqName);
 	}
 
 	@Override
-	public Flux<Tuple2<IType, Double>> fuzzySearchTypes(String searchTerm, Predicate<IType> typeFilter) {
-		return javaIndex.get().fuzzySearchTypes(searchTerm, typeFilter);
+	public Flux<Tuple2<IType, Double>> fuzzySearchTypes(String searchTerm, boolean includeBinaries, boolean includeSystemLibs) {
+		return javaIndex.get().fuzzySearchITypes(searchTerm);
 	}
 
 	@Override
-	public Flux<Tuple2<String, Double>> fuzzySearchPackages(String searchTerm) {
+	public Flux<Tuple2<IType, Double>> camelcaseSearchTypes(String searchTerm, boolean includeBinaries,
+			boolean includeSystemLibs) {
+//		throw new UnsupportedOperationException("Not implemented for Jandex index!");
+		return fuzzySearchTypes(searchTerm, includeBinaries, includeSystemLibs);
+	}
+
+	@Override
+	public Flux<Tuple2<String, Double>> fuzzySearchPackages(String searchTerm, boolean includeBinaries, boolean includeSystemLibs) {
 		return javaIndex.get().fuzzySearchPackages(searchTerm);
 	}
 
 	@Override
-	public Flux<IType> allSubtypesOf(IType type) {
-		return javaIndex.get().allSubtypesOf(type);
+	public Flux<IType> allSubtypesOf(String fqName, boolean includeFocusType, boolean detailed) {
+		IType type = javaIndex.get().findType(fqName);
+		if (type == null) {
+			return Flux.empty();
+		} else {
+			return Flux.concat(includeFocusType ? Flux.fromStream(Stream.of(type)) : Flux.empty(), javaIndex.get().allSubtypesOf(type));
+		}
 	}
 
 	private File findIndexFile(File jarFile) {
@@ -152,30 +140,13 @@ public final class JandexClasspath implements ClasspathIndex {
 	}
 
 	@Override
-	public Optional<File> findClasspathResourceContainer(String fqName) {
+	public IJavaModuleData findClasspathResourceContainer(String fqName) {
 		return javaIndex.get().findClasspathResourceForType(fqName);
 	}
 
 	private void reindex() {
 		log.info("Clearing JandexIndex for "+classpath.getName());
 		this.javaIndex = Suppliers.synchronizedSupplier(Suppliers.memoize(() -> createIndex()));
-	}
-
-	@Override
-	public ImmutableList<String> getClasspathResources() {
-		return IClasspathUtil.getSourceFolders(classpath)
-		.flatMap(folder -> {
-			try {
-				return Files.walk(folder.toPath())
-						.filter(path -> Files.isRegularFile(path))
-						.map(path -> folder.toPath().relativize(path))
-						.map(relativePath -> relativePath.toString())
-						.filter(pathString -> !pathString.endsWith(".java") && !pathString.endsWith(".class"));
-			} catch (IOException e) {
-				return Stream.empty();
-			}
-		})
-		.collect(CollectorUtil.toImmutableList());
 	}
 
 	private static void updateQueue(Queue<String> queue, Set<String> exclusion, IType type) {
@@ -193,25 +164,25 @@ public final class JandexClasspath implements ClasspathIndex {
 	}
 
 	@Override
-	public Flux<IType> allSuperTypesOf(IType type) {
+	public Flux<IType> allSuperTypesOf(String fqName, boolean includeFocusType, boolean detailed) {
 		Queue<String> queue = new LinkedList<>();
 		HashSet<String> visited = new HashSet<>();
-		updateQueue(queue, visited, type);
-		return Flux.generate(() -> queue, (state, sink) -> {
-			IType nextType = null;
-			while (nextType == null && state.peek() != null) {
+		queue.add(fqName);
+		visited.add(fqName);
+		Flux<IType> typesFlux = Flux.generate(() -> queue, (state, sink) -> {
+			if (state.peek() == null) {
+				sink.complete();
+			} else {
 				String typeName = state.poll();
-				nextType = findType(typeName);
+				IType nextType = findType(typeName);
 				if (nextType != null) {
 					sink.next(nextType);
 					updateQueue(state, visited, nextType);
 				}
 			}
-			if (state.peek() == null) {
-				sink.complete();
-			}
 			return state;
 		});
+		return includeFocusType ? typesFlux : typesFlux.skip(1);
 	}
 
 }

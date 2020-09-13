@@ -1,9 +1,9 @@
 /*******************************************************************************
- * Copyright (c) 2017 Pivotal, Inc.
+ * Copyright (c) 2017, 2020 Pivotal, Inc.
  * All rights reserved. This program and the accompanying materials
  * are made available under the terms of the Eclipse Public License v1.0
  * which accompanies this distribution, and is available at
- * http://www.eclipse.org/legal/epl-v10.html
+ * https://www.eclipse.org/legal/epl-v10.html
  *
  * Contributors:
  *     Pivotal, Inc. - initial API and implementation
@@ -19,11 +19,12 @@ import org.eclipse.lsp4j.DocumentSymbolParams;
 import org.eclipse.lsp4j.Location;
 import org.eclipse.lsp4j.SymbolInformation;
 import org.eclipse.lsp4j.SymbolKind;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
 import org.springframework.ide.vscode.commons.languageserver.util.DocumentSymbolHandler;
 import org.springframework.ide.vscode.commons.languageserver.util.SimpleTextDocumentService;
 import org.springframework.ide.vscode.commons.util.Assert;
 import org.springframework.ide.vscode.commons.util.BadLocationException;
-import org.springframework.ide.vscode.commons.util.Log;
 import org.springframework.ide.vscode.commons.util.text.DocumentRegion;
 import org.springframework.ide.vscode.commons.util.text.TextDocument;
 import org.springframework.ide.vscode.commons.yaml.ast.NodeUtil;
@@ -44,6 +45,8 @@ import com.google.common.collect.ImmutableSet;
  */
 public class TypeBasedYamlSymbolHandler implements DocumentSymbolHandler {
 
+	final static Logger logger = LoggerFactory.getLogger(TypeBasedYamlSymbolHandler.class);
+
 	private ASTTypeCache astTypeCache;
 	private Set<YType> definitionTypes;
 	private SimpleTextDocumentService documents;
@@ -62,12 +65,14 @@ public class TypeBasedYamlSymbolHandler implements DocumentSymbolHandler {
 	public List<? extends SymbolInformation> handle(DocumentSymbolParams params) {
 		Builder<SymbolInformation> builder = ImmutableList.builder();
 		TextDocument doc = documents.getDocument(params.getTextDocument().getUri());
-		for (Entry<Node, YType> entry : astTypeCache.getNodeTypes(params.getTextDocument().getUri()).getTypes().entrySet()) {
-			if (definitionTypes.contains(entry.getValue())) {
-				try {
-					builder.add(createSymbol(doc, entry.getKey(), entry.getValue()));
-				} catch (Exception e) {
-					Log.log(e);
+		if (doc != null) {
+			for (Entry<Node, YType> entry : astTypeCache.getNodeTypes(params.getTextDocument().getUri()).getTypes().entrySet()) {
+				if (definitionTypes.contains(entry.getValue())) {
+					try {
+						builder.add(createSymbol(doc, entry.getKey(), entry.getValue()));
+					} catch (Exception e) {
+						logger.error("", e);
+					}
 				}
 			}
 		}

@@ -1,9 +1,9 @@
 /*******************************************************************************
- * Copyright (c) 2015 Pivotal, Inc.
+ * Copyright (c) 2015, 2019 Pivotal, Inc.
  * All rights reserved. This program and the accompanying materials
  * are made available under the terms of the Eclipse Public License v1.0
  * which accompanies this distribution, and is available at
- * http://www.eclipse.org/legal/epl-v10.html
+ * https://www.eclipse.org/legal/epl-v10.html
  *
  * Contributors:
  *     Pivotal, Inc. - initial API and implementation
@@ -36,7 +36,7 @@ public class YamlPathEdits extends DocumentEdits {
 	private YamlIndentUtil indentUtil;
 
 	public YamlPathEdits(YamlDocument doc) {
-		super(doc.getDocument());
+		super(doc.getDocument(), false);
 		this.doc = doc;
 		this.indentUtil = new YamlIndentUtil(doc);
 	}

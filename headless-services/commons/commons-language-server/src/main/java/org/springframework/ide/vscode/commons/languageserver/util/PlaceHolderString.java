@@ -3,7 +3,7 @@
  * All rights reserved. This program and the accompanying materials
  * are made available under the terms of the Eclipse Public License v1.0
  * which accompanies this distribution, and is available at
- * http://www.eclipse.org/legal/epl-v10.html
+ * https://www.eclipse.org/legal/epl-v10.html
  *
  * Contributors:
  *     Pivotal, Inc. - initial API and implementation
@@ -77,6 +77,18 @@ public class PlaceHolderString {
 		this.string = string;
 	}
 
+	public boolean hasPlaceHolders() {
+		if (placeHolders.isEmpty()) {
+			return false;
+		}
+		if (placeHolders.size()==1) {
+			PlaceHolder placeHolder = CollectionUtil.getAny(placeHolders.values());
+			if (string.length()==placeHolder.getEnd()) {
+				return false;
+			}
+		}
+		return true;
+	}
 
 	@Override
 	public String toString() {

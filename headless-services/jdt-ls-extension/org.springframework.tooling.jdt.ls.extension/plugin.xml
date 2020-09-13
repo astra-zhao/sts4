@@ -3,13 +3,64 @@
 <plugin>
    <extension point="org.eclipse.jdt.ls.core.delegateCommandHandler">
       <delegateCommandHandler class="org.springframework.tooling.jdt.ls.extension.ClasspathListenerHandler">
-            <command id="sts.java.addClasspathListener"/>
-            <command id="sts.java.removeClasspathListener"/>
+            <command
+                  id="sts.java.addClasspathListener"
+                  static="true"/>
+            <command
+                  id="sts.java.removeClasspathListener"
+                  static="true"/>
        </delegateCommandHandler>
       <delegateCommandHandler
             class="org.springframework.tooling.jdt.ls.extension.JavadocHandler">
          <command
                id="sts.java.javadoc">
+         </command>
+      </delegateCommandHandler>
+      <delegateCommandHandler
+            class="org.springframework.tooling.jdt.ls.extension.JavaTypeHandler">
+         <command
+               id="sts.java.type"
+               static="true">
+         </command>
+      </delegateCommandHandler>
+      <delegateCommandHandler
+            class="org.springframework.tooling.jdt.ls.extension.JavadocHoverLinkHandler">
+         <command
+               id="sts.java.javadocHoverLink">
+         </command>
+      </delegateCommandHandler>
+      <delegateCommandHandler
+            class="org.springframework.tooling.jdt.ls.extension.JavaLocationHandler">
+         <command
+               id="sts.java.location">
+         </command>
+      </delegateCommandHandler>
+      <delegateCommandHandler
+            class="org.springframework.tooling.jdt.ls.extension.SearchHandler">
+         <command
+               id="sts.java.search.types"
+               static="true">
+         </command>
+         <command
+               id="sts.java.search.packages"
+               static="true">
+         </command>
+      </delegateCommandHandler>
+      <delegateCommandHandler
+            class="org.springframework.tooling.jdt.ls.extension.HierarchyHandler">
+         <command
+               id="sts.java.hierarchy.subtypes"
+               static="true">
+         </command>
+         <command
+               id="sts.java.hierarchy.supertypes"
+               static="true">
+         </command>
+      </delegateCommandHandler>
+      <delegateCommandHandler
+            class="org.springframework.tooling.jdt.ls.extension.JavaCodeCompletionHandler">
+         <command
+               id="sts.java.code.completions">
          </command>
       </delegateCommandHandler>
    </extension>

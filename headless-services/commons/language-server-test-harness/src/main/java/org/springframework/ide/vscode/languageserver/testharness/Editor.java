@@ -1,17 +1,17 @@
 /*******************************************************************************
- * Copyright (c) 2016-2018 Pivotal, Inc.
+ * Copyright (c) 2016, 2020 Pivotal, Inc.
  * All rights reserved. This program and the accompanying materials
  * are made available under the terms of the Eclipse Public License v1.0
  * which accompanies this distribution, and is available at
- * http://www.eclipse.org/legal/epl-v10.html
+ * https://www.eclipse.org/legal/epl-v10.html
  *
  * Contributors:
  *     Pivotal, Inc. - initial API and implementation
  *******************************************************************************/
-
 package org.springframework.ide.vscode.languageserver.testharness;
 
 import static org.junit.Assert.assertEquals;
+import static org.junit.Assert.assertNull;
 import static org.junit.Assert.assertTrue;
 import static org.junit.Assert.fail;
 import static org.springframework.ide.vscode.languageserver.testharness.LanguageServerHarness.getDocString;
@@ -35,9 +35,11 @@ import javax.swing.text.BadLocationException;
 import org.eclipse.lsp4j.CodeLens;
 import org.eclipse.lsp4j.CompletionItem;
 import org.eclipse.lsp4j.CompletionList;
+import org.eclipse.lsp4j.DefinitionParams;
 import org.eclipse.lsp4j.Diagnostic;
+import org.eclipse.lsp4j.DocumentSymbol;
 import org.eclipse.lsp4j.Hover;
-import org.eclipse.lsp4j.Location;
+import org.eclipse.lsp4j.LocationLink;
 import org.eclipse.lsp4j.MarkedString;
 import org.eclipse.lsp4j.MarkupContent;
 import org.eclipse.lsp4j.Position;
@@ -45,11 +47,10 @@ import org.eclipse.lsp4j.PublishDiagnosticsParams;
 import org.eclipse.lsp4j.Range;
 import org.eclipse.lsp4j.SymbolInformation;
 import org.eclipse.lsp4j.TextDocumentIdentifier;
-import org.eclipse.lsp4j.TextDocumentPositionParams;
 import org.eclipse.lsp4j.TextEdit;
 import org.eclipse.lsp4j.jsonrpc.messages.Either;
 import org.junit.Assert;
-import org.springframework.ide.vscode.commons.languageserver.HighlightParams;
+import org.springframework.ide.vscode.commons.protocol.HighlightParams;
 import org.springframework.ide.vscode.commons.util.StringUtil;
 import org.springframework.ide.vscode.commons.util.Unicodes;
 import org.springframework.ide.vscode.commons.util.text.LanguageId;
@@ -138,10 +139,14 @@ public class Editor {
 	private LanguageId languageId;
 
 	public Editor(LanguageServerHarness harness, String contents, LanguageId languageId) throws Exception {
+		this(harness, contents, languageId, null);
+	}
+
+	public Editor(LanguageServerHarness harness, String contents, LanguageId languageId, String extension) throws Exception {
 		this.harness = harness;
 		this.languageId = LanguageId.of(languageId.getId()); // So we can catch bugs that use == for langauge id comparison.
 		EditorState state = new EditorState(contents);
-		this.doc = harness.openDocument(harness.createWorkingCopy(state.documentContents, this.languageId));
+		this.doc = harness.openDocument(harness.createWorkingCopy(state.documentContents, this.languageId, extension));
 		this.selectionStart = state.selectionStart;
 		this.selectionEnd = state.selectionEnd;
 		this.ignoredTypes = new HashSet<>();
@@ -176,7 +181,7 @@ public class Editor {
 	public List<Diagnostic> assertProblems(String... expectedProblems) throws Exception {
 		Editor editor = this;
 		List<Diagnostic> actualProblems = new ArrayList<>(editor.reconcile().stream().filter(d -> {
-			return !ignoredTypes.contains(d.getCode());
+			return !ignoredTypes.contains(d.getCode().getLeft());
 		}).collect(Collectors.toList()));
 		Collections.sort(actualProblems, PROBLEM_COMPARATOR);
 		String bad = null;
@@ -218,6 +223,11 @@ public class Editor {
 			.collect(Collectors.toList());
 		assertEquals(ImmutableList.copyOf(expectedHighlights), actualHighlights);
 		return ranges;
+	}
+
+	public void assertNoHighlights() throws Exception {
+		HighlightParams highlights = harness.getHighlights(false, doc);
+		assertNull(highlights);
 	}
 
 	/**
@@ -668,6 +678,18 @@ public class Editor {
 		return it;
 	}
 
+	public CompletionItem assertCompletionDetailsWithDeprecation(String expectLabel, String expectDetail, String expectDocSnippet, Boolean deprecated) throws Exception {
+		CompletionItem it = harness.resolveCompletionItem(assertCompletionWithLabel(expectLabel));
+		if (expectDetail!=null) {
+			assertEquals(expectDetail, it.getDetail());
+		}
+		if (expectDocSnippet!=null) {
+			assertContains(expectDocSnippet, getDocString(it));
+		}
+		assertEquals(deprecated, it.getDeprecated());
+		return it;
+	}
+
 	protected CompletionItem assertCompletionWithLabel(Predicate<String> expectLabel) throws Exception {
 		List<CompletionItem> completions = getCompletions();
 		Optional<CompletionItem> completion = completions.stream()
@@ -700,12 +722,13 @@ public class Editor {
 		setText(saveText);
 	}
 
-	public void assertCompletionWithLabel(Predicate<String> expectLabel, String expectedResult) throws Exception {
+	public CompletionItem assertCompletionWithLabel(Predicate<String> expectLabel, String expectedResult) throws Exception {
 		CompletionItem completion = assertCompletionWithLabel(expectLabel);
 		String saveText = getText();
 		apply(completion);
 		assertEquals(expectedResult, getText());
 		setText(saveText);
+		return completion;
 	}
 
 	public void setSelection(int start, int end) {
@@ -721,17 +744,30 @@ public class Editor {
 		return "Editor(\n"+getText()+"\n)";
 	}
 
-	public void assertLinkTargets(String hoverOver, Set<Location> expectedLocations) throws Exception {
+	public void assertLinkTargets(String hoverOver, Set<LocationLink> expectedLocations) throws Exception {
 		int pos = getRawText().indexOf(hoverOver);
 		if (pos>=0) {
 			pos += hoverOver.length() / 2;
 		}
 		assertTrue("Not found in editor: '"+hoverOver+"'", pos>=0);
 
-		TextDocumentPositionParams params = new TextDocumentPositionParams(new TextDocumentIdentifier(getUri()), doc.toPosition(pos));
-		List<? extends Location> definitions = harness.getDefinitions(params);
+		DefinitionParams params = new DefinitionParams(new TextDocumentIdentifier(getUri()), doc.toPosition(pos));
+		List<? extends LocationLink> definitions = harness.getDefinitions(params);
 
 		assertEquals(ImmutableSet.copyOf(expectedLocations), ImmutableSet.copyOf(definitions));
+	}
+	
+	public void assertNoLinkTargets(String hoverOver) throws Exception {
+		int pos = getRawText().indexOf(hoverOver);
+		if (pos>=0) {
+			pos += hoverOver.length() / 2;
+		}
+		assertTrue("Not found in editor: '"+hoverOver+"'", pos>=0);
+
+		DefinitionParams params = new DefinitionParams(new TextDocumentIdentifier(getUri()), doc.toPosition(pos));
+		List<? extends LocationLink> definitions = harness.getDefinitions(params);
+
+		assertTrue(definitions == null || definitions.isEmpty());
 	}
 
 	@Deprecated
@@ -771,8 +807,24 @@ public class Editor {
 		return null; //unreachable but compiler doesn't know
 	}
 
-	public CompletionItem assertFirstQuickfix(Diagnostic problem, String expectLabel) {
-		throw new UnsupportedOperationException("Not implemented yet!");
+	public CodeAction assertFirstQuickfix(Diagnostic problem, String expectLabel) throws Exception {
+		CodeAction ca = assertCodeAction(problem);
+		assertEquals(expectLabel, ca.getLabel());
+		return ca;
+	}
+	
+	public List<CodeAction> assertQuickfixes(Diagnostic problem, String... expectedLabels) throws Exception {
+		List<CodeAction> actions = getCodeActions(problem);
+		StringBuilder expecteds = new StringBuilder();
+		for (String l : expectedLabels) {
+			expecteds.append(l+"\n");
+		}
+		StringBuilder actuals = new StringBuilder();
+		for (CodeAction a : actions) {
+			actuals.append(a.getLabel()+"\n");
+		}
+		assertEquals(expecteds.toString(), actuals.toString());
+		return actions;
 	}
 
 	public void assertText(String expected) {
@@ -783,12 +835,12 @@ public class Editor {
 		ignoredTypes.add(type.toString());
 	}
 
-	public void assertGotoDefinition(Position pos, Range expectedTarget) throws Exception {
+	public void assertGotoDefinition(Position pos, Range expectedTarget, Range highlightRange) throws Exception {
 		TextDocumentIdentifier textDocumentId = doc.getId();
-		TextDocumentPositionParams params = new TextDocumentPositionParams(textDocumentId, textDocumentId.getUri(), pos);
-		List<? extends Location> defs = harness.getDefinitions(params);
+		DefinitionParams params = new DefinitionParams(textDocumentId, pos);
+		List<? extends LocationLink> defs = harness.getDefinitions(params);
 		assertEquals(1, defs.size());
-		assertEquals(new Location(textDocumentId.getUri(), expectedTarget), defs.get(0));
+		assertEquals(new LocationLink(textDocumentId.getUri(), expectedTarget, expectedTarget, highlightRange), defs.get(0));
 	}
 
 	/**
@@ -807,6 +859,10 @@ public class Editor {
 
 	public Position positionOf(String snippet) throws Exception {
 		return positionOf(snippet, snippet);
+	}
+
+	public Range rangeOf(String focusSnippet) throws Exception {
+		return rangeOf(focusSnippet, focusSnippet);
 	}
 
 	/**
@@ -840,6 +896,18 @@ public class Editor {
 		return actions.get(0);
 	}
 
+	public void assertNoCodeAction(Diagnostic problem) throws Exception {
+		List<CodeAction> actions = getCodeActions(problem);
+		if (actions!=null && !actions.isEmpty()) {
+			StringBuilder found = new StringBuilder();
+			for (CodeAction codeAction : actions) {
+				found.append("\n"+codeAction.getLabel());
+			}
+			fail("Expected no code actions but found:"+found);
+		}
+	}
+
+
 	public String getUri() {
 		return doc.getUri();
 	}
@@ -871,6 +939,38 @@ public class Editor {
 		assertEquals(expected.toString(), actual.toString());
 	}
 
+	public void assertHierarchicalDocumentSymbols(String expectedSymbolDump) throws Exception {
+		StringBuilder symbolDump = new StringBuilder();
+		List<? extends DocumentSymbol> rootSymbols = getHierarchicalDocumentSymbols();
+		dumpSymbols(rootSymbols, 0, symbolDump);
+		assertEquals(expectedSymbolDump, symbolDump.toString());
+	}
+
+	private void dumpSymbols(List<? extends DocumentSymbol> syms, int indent, StringBuilder symbolDump) {
+		for (DocumentSymbol s : syms) {
+			dumpSymbol(s, indent, symbolDump);
+		}
+	}
+
+	private void dumpSymbol(DocumentSymbol s, int indent, StringBuilder symbolDump) {
+		for (int i = 0; i < indent; i++) {
+			symbolDump.append("  ");
+		}
+		symbolDump.append(s.getName());
+		symbolDump.append("::");
+		symbolDump.append(s.getDetail());
+		symbolDump.append("\n");
+		assertEquals(s.getName(), getText(s.getSelectionRange()));
+		List<DocumentSymbol> children = s.getChildren();
+		if (children!=null) {
+			dumpSymbols(children, indent+1, symbolDump);
+		}
+	}
+
+	private List<? extends DocumentSymbol> getHierarchicalDocumentSymbols() throws Exception {
+		return harness.getHierarchicalDocumentSymbols(this.doc);
+	}
+
 	private List<? extends SymbolInformation> getDocumentSymbols() throws Exception {
 		return harness.getDocumentSymbols(this.doc);
 	}
@@ -878,4 +978,6 @@ public class Editor {
 	public void setCursor(Position position) {
 		this.selectionStart = this.selectionEnd = doc.toOffset(position);
 	}
+
+
 }

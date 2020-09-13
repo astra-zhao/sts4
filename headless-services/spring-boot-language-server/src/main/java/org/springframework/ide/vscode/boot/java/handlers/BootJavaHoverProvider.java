@@ -1,15 +1,16 @@
 /*******************************************************************************
- * Copyright (c) 2017, 2018 Pivotal, Inc.
+ * Copyright (c) 2017, 2020 Pivotal, Inc.
  * All rights reserved. This program and the accompanying materials
  * are made available under the terms of the Eclipse Public License v1.0
  * which accompanies this distribution, and is available at
- * http://www.eclipse.org/legal/epl-v10.html
+ * https://www.eclipse.org/legal/epl-v10.html
  *
  * Contributors:
  *     Pivotal, Inc. - initial API and implementation
  *******************************************************************************/
 package org.springframework.ide.vscode.boot.java.handlers;
 
+import java.net.URI;
 import java.util.Collection;
 import java.util.LinkedHashSet;
 import java.util.Optional;
@@ -24,21 +25,22 @@ import org.eclipse.jdt.core.dom.NodeFinder;
 import org.eclipse.jdt.core.dom.NormalAnnotation;
 import org.eclipse.jdt.core.dom.SimpleName;
 import org.eclipse.jdt.core.dom.SingleMemberAnnotation;
+import org.eclipse.jdt.core.dom.SingleVariableDeclaration;
 import org.eclipse.jdt.core.dom.TypeDeclaration;
 import org.eclipse.lsp4j.CodeLens;
 import org.eclipse.lsp4j.Hover;
+import org.eclipse.lsp4j.HoverParams;
 import org.eclipse.lsp4j.TextDocumentIdentifier;
-import org.eclipse.lsp4j.TextDocumentPositionParams;
 import org.eclipse.lsp4j.jsonrpc.messages.Either;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.ide.vscode.boot.java.BootJavaLanguageServerComponents;
 import org.springframework.ide.vscode.boot.java.annotations.AnnotationHierarchyAwareLookup;
+import org.springframework.ide.vscode.boot.java.livehover.v2.SpringProcessLiveData;
+import org.springframework.ide.vscode.boot.java.livehover.v2.SpringProcessLiveDataProvider;
 import org.springframework.ide.vscode.boot.java.utils.ASTUtils;
-import org.springframework.ide.vscode.commons.boot.app.cli.SpringBootApp;
-import org.springframework.ide.vscode.commons.java.IClasspath;
-import org.springframework.ide.vscode.commons.java.IClasspathUtil;
 import org.springframework.ide.vscode.commons.java.IJavaProject;
+import org.springframework.ide.vscode.commons.java.SpringProjectUtil;
 import org.springframework.ide.vscode.commons.languageserver.java.JavaProjectFinder;
 import org.springframework.ide.vscode.commons.languageserver.util.HoverHandler;
 import org.springframework.ide.vscode.commons.languageserver.util.SimpleTextDocumentService;
@@ -55,25 +57,21 @@ public class BootJavaHoverProvider implements HoverHandler {
 
 	private static Logger logger = LoggerFactory.getLogger(BootJavaHoverProvider.class);
 
-	private JavaProjectFinder projectFinder;
-	private BootJavaLanguageServerComponents server;
-	private AnnotationHierarchyAwareLookup<HoverProvider> hoverProviders;
-	private RunningAppProvider runningAppProvider;
-
-	private Collection<SpringBootApp> runningSpringBootApps;
-
+	private final JavaProjectFinder projectFinder;
+	private final BootJavaLanguageServerComponents server;
+	private final AnnotationHierarchyAwareLookup<HoverProvider> hoverProviders;
+	private final SpringProcessLiveDataProvider liveDataProvider;
 
 	public BootJavaHoverProvider(BootJavaLanguageServerComponents server, JavaProjectFinder projectFinder,
-			AnnotationHierarchyAwareLookup<HoverProvider> specificProviders, RunningAppProvider runningAppProvider) {
+			AnnotationHierarchyAwareLookup<HoverProvider> specificProviders, SpringProcessLiveDataProvider liveDataProvider) {
 		this.server = server;
 		this.projectFinder = projectFinder;
 		this.hoverProviders = specificProviders;
-		this.runningAppProvider = runningAppProvider;
-		this.runningSpringBootApps = null;
+		this.liveDataProvider = liveDataProvider;
 	}
-
+	
 	@Override
-	public Hover handle(TextDocumentPositionParams params) {
+	public Hover handle(HoverParams params) {
 		SimpleTextDocumentService documents = server.getTextDocumentService();
 		if (documents.get(params) != null) {
 			TextDocument doc = documents.get(params).copy();
@@ -94,14 +92,13 @@ public class BootJavaHoverProvider implements HoverHandler {
 		return SimpleTextDocumentService.NO_HOVER;
 	}
 
-	public CodeLens[] getLiveHoverHints(final TextDocument document, final SpringBootApp[] runningBootApps) {
-		if (runningBootApps.length == 0) return new CodeLens[0];
+	public CodeLens[] getLiveHoverHints(final TextDocument document, final IJavaProject project) {
+		final SpringProcessLiveData[] processLiveData = this.liveDataProvider.getLatestLiveData();
+		
+		if (processLiveData.length == 0) return new CodeLens[0];
+		if (project == null) return new CodeLens[0];
 
-		Optional<IJavaProject> project = getProject(document);
-		if (!project.isPresent()) return new CodeLens[0];
-		if (!hasActuatorDependency(project.get())) return new CodeLens[0];
-
-		return server.getCompilationUnitCache().withCompilationUnit(document, cu -> {
+		return server.getCompilationUnitCache().withCompilationUnit(project, URI.create(document.getUri()), cu -> {
 			Collection<CodeLens> result = new LinkedHashSet<>();
 			try {
 				if (cu != null) {
@@ -110,7 +107,7 @@ public class BootJavaHoverProvider implements HoverHandler {
 						@Override
 						public boolean visit(TypeDeclaration node) {
 							try {
-								extractLiveHintsForType(node, document, project.get(), runningBootApps, result);
+								extractLiveHintsForType(node, document, project, processLiveData, result);
 							}
 							catch (Exception e) {
 								logger.error("error extracting live hint information for docURI '" + document.getUri() + "' - on node: " + node.toString(), e);
@@ -121,7 +118,7 @@ public class BootJavaHoverProvider implements HoverHandler {
 						@Override
 						public boolean visit(SingleMemberAnnotation node) {
 							try {
-								extractLiveHintsForAnnotation(node, document, project.get(), runningBootApps, result);
+								extractLiveHintsForAnnotation(node, document, project, processLiveData, result);
 							} catch (Exception e) {
 								logger.error("error extracting live hint information for docURI '" + document.getUri() + "' - on node: " + node.toString(), e);
 							}
@@ -132,7 +129,7 @@ public class BootJavaHoverProvider implements HoverHandler {
 						@Override
 						public boolean visit(NormalAnnotation node) {
 							try {
-								extractLiveHintsForAnnotation(node, document, project.get(), runningBootApps, result);
+								extractLiveHintsForAnnotation(node, document, project, processLiveData, result);
 							} catch (Exception e) {
 								logger.error("error extracting live hint information for docURI '" + document.getUri() + "' - on node: " + node.toString(), e);
 							}
@@ -143,7 +140,7 @@ public class BootJavaHoverProvider implements HoverHandler {
 						@Override
 						public boolean visit(MarkerAnnotation node) {
 							try {
-								extractLiveHintsForAnnotation(node, document, project.get(), runningBootApps, result);
+								extractLiveHintsForAnnotation(node, document, project, processLiveData, result);
 							} catch (Exception e) {
 								logger.error("error extracting live hint information for docURI '" + document.getUri() + "' - on node: " + node.toString(), e);
 							}
@@ -154,7 +151,7 @@ public class BootJavaHoverProvider implements HoverHandler {
 						@Override
 						public boolean visit(MethodDeclaration node) {
 							try {
-								extractLiveHintsForMethod(node, document, project.get(), runningBootApps, result);
+								extractLiveHintsForMethod(node, document, project, processLiveData, result);
 							} catch (Exception e) {
 								logger.error("error extracting live hint information for docURI '" + document.getUri() + "' - on node: " + node.toString(), e);
 							}
@@ -173,10 +170,10 @@ public class BootJavaHoverProvider implements HoverHandler {
 	}
 
 	protected void extractLiveHintsForMethod(MethodDeclaration methodDeclaration, TextDocument doc, IJavaProject project,
-			SpringBootApp[] runningApps, Collection<CodeLens> result) {
+			SpringProcessLiveData[] processLiveData, Collection<CodeLens> result) {
 		Collection<HoverProvider> providers = this.hoverProviders.getAll();
 		for (HoverProvider provider : providers) {
-			Collection<CodeLens> hints = provider.getLiveHintCodeLenses(project, methodDeclaration, doc, runningApps);
+			Collection<CodeLens> hints = provider.getLiveHintCodeLenses(project, methodDeclaration, doc, processLiveData);
 			if (hints!=null) {
 				result.addAll(hints);
 			}
@@ -184,10 +181,10 @@ public class BootJavaHoverProvider implements HoverHandler {
 	}
 
 	protected void extractLiveHintsForType(TypeDeclaration typeDeclaration, TextDocument doc, IJavaProject project,
-			SpringBootApp[] runningApps, Collection<CodeLens> result) {
+			SpringProcessLiveData[] processLiveData, Collection<CodeLens> result) {
 		Collection<HoverProvider> providers = this.hoverProviders.getAll();
 		for (HoverProvider provider : providers) {
-			Collection<CodeLens> hints = provider.getLiveHintCodeLenses(project, typeDeclaration, doc, runningApps);
+			Collection<CodeLens> hints = provider.getLiveHintCodeLenses(project, typeDeclaration, doc, processLiveData);
 			if (hints!=null) {
 				result.addAll(hints);
 			}
@@ -195,11 +192,11 @@ public class BootJavaHoverProvider implements HoverHandler {
 	}
 
 	protected void extractLiveHintsForAnnotation(Annotation annotation, TextDocument doc, IJavaProject project,
-			SpringBootApp[] runningApps, Collection<CodeLens> result) {
+			SpringProcessLiveData[] processLiveData, Collection<CodeLens> result) {
 		ITypeBinding type = annotation.resolveTypeBinding();
 		if (type != null) {
 			for (HoverProvider provider : this.hoverProviders.get(type)) {
-				Collection<CodeLens> hints = provider.getLiveHintCodeLenses(project, annotation, doc, runningApps);
+				Collection<CodeLens> hints = provider.getLiveHintCodeLenses(project, annotation, doc, processLiveData);
 				if (hints!=null) {
 					result.addAll(hints);
 				}
@@ -208,12 +205,14 @@ public class BootJavaHoverProvider implements HoverHandler {
 	}
 
 	private Hover provideHover(TextDocument document, int offset) throws Exception {
+		final SpringProcessLiveData[] processLiveData = this.liveDataProvider.getLatestLiveData();
+
 		IJavaProject project = getProject(document).orElse(null);
 		if (project != null) {
-			return server.getCompilationUnitCache().withCompilationUnit(document, cu -> {
+			return server.getCompilationUnitCache().withCompilationUnit(project, URI.create(document.getUri()), cu -> {
 				ASTNode node = NodeFinder.perform(cu, offset, 0);
 				if (node != null) {
-					return provideHover(node, offset, document, project);
+					return provideHover(node, offset, document, project, processLiveData);
 				}
 				return null;
 			});
@@ -221,7 +220,7 @@ public class BootJavaHoverProvider implements HoverHandler {
 		return null;
 	}
 
-	private Hover provideHover(ASTNode node, int offset, TextDocument doc, IJavaProject project) {
+	private Hover provideHover(ASTNode node, int offset, TextDocument doc, IJavaProject project, SpringProcessLiveData[] processLiveData) {
 
 		// look for spring annotations first
 		ASTNode annotationNode = node;
@@ -229,28 +228,41 @@ public class BootJavaHoverProvider implements HoverHandler {
 			annotationNode = annotationNode.getParent();
 		}
 		if (annotationNode != null) {
-			return provideHoverForAnnotation(node, (Annotation) annotationNode, offset, doc, project);
+			return provideHoverForAnnotation(node, (Annotation) annotationNode, offset, doc, project, processLiveData);
 		}
 
 		// then do additional AST node coverage
 		if (node instanceof SimpleName) {
 			ASTNode parent = node.getParent();
 			if (parent instanceof TypeDeclaration) {
-				return provideHoverForTypeDeclaration(node, (TypeDeclaration) parent, offset, doc, project);
+				return provideHoverForTypeDeclaration(node, (TypeDeclaration) parent, offset, doc, project, processLiveData);
 			} else if (parent instanceof MethodDeclaration) {
-				return provideHoverForMethodDeclaration((MethodDeclaration) parent, offset, doc, project);
+				return provideHoverForMethodDeclaration((MethodDeclaration) parent, offset, doc, project, processLiveData);
+			} else if (parent instanceof SingleVariableDeclaration && parent.getParent() instanceof MethodDeclaration) {
+				return provideHoverForMethodParameter((SingleVariableDeclaration) parent, offset, doc, project, processLiveData);
+			}
+		}
+		return null;
+	}
+
+	private Hover provideHoverForMethodParameter(SingleVariableDeclaration parameter, int offset, TextDocument doc,
+			IJavaProject project, SpringProcessLiveData[] processLiveData) {
+		if (processLiveData.length > 0) {
+			for (HoverProvider provider : this.hoverProviders.getAll()) {
+				Hover hover = provider.provideMethodParameterHover(parameter, offset, doc, project, processLiveData);
+				if (hover != null) {
+					return hover;
+				}
 			}
 		}
 		return null;
 	}
 
 	private Hover provideHoverForMethodDeclaration(MethodDeclaration methodDeclaration, int offset, TextDocument doc,
-			IJavaProject project) {
-		SpringBootApp[] runningApps = getRunningSpringApps(project);
-
-		if (runningApps.length > 0) {
+			IJavaProject project, SpringProcessLiveData[] processLiveData) {
+		if (processLiveData.length > 0) {
 			for (HoverProvider provider : this.hoverProviders.getAll()) {
-				Hover hover = provider.provideHover(methodDeclaration, offset, doc, project, runningApps);
+				Hover hover = provider.provideHover(methodDeclaration, offset, doc, project, processLiveData);
 				if (hover != null) {
 					//TODO: compose multiple hovers somehow instead of just returning the first one?
 					return hover;
@@ -260,28 +272,29 @@ public class BootJavaHoverProvider implements HoverHandler {
 		return null;
 	}
 
-	private Hover provideHoverForAnnotation(ASTNode exactNode, Annotation annotation, int offset, TextDocument doc, IJavaProject project) {
+	private Hover provideHoverForAnnotation(ASTNode exactNode, Annotation annotation, int offset, TextDocument doc, IJavaProject project,
+			SpringProcessLiveData[] processLiveData) {
 		ITypeBinding type = annotation.resolveTypeBinding();
 		if (type != null) {
 			logger.debug("Hover requested for "+type.getName());
 
-			SpringBootApp[] runningApps = getRunningSpringApps(project);
-			if (runningApps.length > 0) {
+			if (processLiveData.length > 0) {
 
 				for (HoverProvider provider : this.hoverProviders.get(type)) {
-					Hover hover = provider.provideHover(exactNode, annotation, type, offset, doc, project, runningApps);
-					if (hover!=null) {
+					Hover hover = provider.provideHover(exactNode, annotation, type, offset, doc, project, processLiveData);
+					if (hover != null) {
 						logger.debug("Hover found: "+hover);
 						//TODO: compose multiple hovers somehow instead of just returning the first one?
 						return hover;
 					}
 					logger.debug("NO Hover!");
 				}
+
 				//Only reaching here if we didn't get a hover.
-				if (!hasActuatorDependency(project)) {
+				if (!SpringProjectUtil.hasBootActuators(project)) {
 					DocumentRegion region = ASTUtils.nameRegion(doc, annotation);
 					if (region.containsOffset(offset)) {
-						return actuatorWarning(project);
+						return liveHoverWarning(project);
 					}
 				}
 			}
@@ -289,13 +302,13 @@ public class BootJavaHoverProvider implements HoverHandler {
 		return null;
 	}
 
-	private Hover provideHoverForTypeDeclaration(ASTNode exactNode, TypeDeclaration typeDeclaration, int offset, TextDocument doc, IJavaProject project) {
-		SpringBootApp[] runningApps = getRunningSpringApps(project);
-		if (runningApps.length > 0) {
+	private Hover provideHoverForTypeDeclaration(ASTNode exactNode, TypeDeclaration typeDeclaration, int offset, TextDocument doc,
+			IJavaProject project, SpringProcessLiveData[] processLiveData) {
+		if (processLiveData.length > 0) {
 			ITypeBinding type = typeDeclaration.resolveBinding();
 
 			for (HoverProvider provider : this.hoverProviders.getAll()) {
-				Hover hover = provider.provideHover(exactNode, typeDeclaration, type, offset, doc, project, runningApps);
+				Hover hover = provider.provideHover(exactNode, typeDeclaration, type, offset, doc, project, processLiveData);
 				if (hover!=null) {
 					//TODO: compose multiple hovers somehow instead of just returning the first one?
 					return hover;
@@ -305,52 +318,17 @@ public class BootJavaHoverProvider implements HoverHandler {
 		return null;
 	}
 
-	private Hover actuatorWarning(IJavaProject project) {
+	private Hover liveHoverWarning(IJavaProject project) {
 		String hoverText =
 				"**No live hover information available**.\n"+
 				"\n" +
-				"Live hover providers use various `spring-boot-actuator` endpoints to retrieve information. "+
-				"Consider adding `spring-boot-actuator` as a dependency to your project `"+project.getElementName()+"`";
+				"Live hover providers use either `spring-boot-actuator` endpoints to retrieve information or the Spring live beans option. "+
+				"Consider adding `spring-boot-actuator` as a dependency to your project `"+project.getElementName()+"` or enable the live beans option in your launch configuration.";
 		return new Hover(ImmutableList.of(Either.forLeft(hoverText)));
-	}
-
-	private boolean hasActuatorDependency(IJavaProject project) {
-		try {
-			IClasspath classpath = project.getClasspath();
-			if (classpath != null) {
-				return IClasspathUtil.getBinaryRoots(classpath, (cpe) -> !cpe.isSystem()).stream().anyMatch(cpe -> {
-					String name = cpe.getName();
-					return name.startsWith("spring-boot-actuator-");
-				});
-			}
-		} catch (Exception e) {
-			logger.error("error identifying actuator dependency on project '" + project.getElementName() + "'", e);
-		}
-		return false;
 	}
 
 	private Optional<IJavaProject> getProject(IDocument doc) {
 		return this.projectFinder.find(new TextDocumentIdentifier(doc.getUri()));
-	}
-
-	private SpringBootApp[] getRunningSpringApps(IJavaProject project) {
-		try {
-			Collection<SpringBootApp> allApps = this.runningSpringBootApps;
-			if (allApps == null) {
-				allApps = runningAppProvider.getAllRunningSpringApps();
-			}
-
-			Collection<SpringBootApp> allMatchingApps = RunningAppMatcher.getAllMatchingApps(allApps, project);
-
-			return allMatchingApps.toArray(new SpringBootApp[0]);
-		} catch (Exception e) {
-			logger.error("error getting all matching projects for project'" + project.getElementName() + "'", e);
-			return new SpringBootApp[0];
-		}
-	}
-
-	public void setRunningSpringApps(Collection<SpringBootApp> allRunningSpringBootApps) {
-		this.runningSpringBootApps = allRunningSpringBootApps;
 	}
 
 }

@@ -3,7 +3,7 @@
  * All rights reserved. This program and the accompanying materials
  * are made available under the terms of the Eclipse Public License v1.0
  * which accompanies this distribution, and is available at
- * http://www.eclipse.org/legal/epl-v10.html
+ * https://www.eclipse.org/legal/epl-v10.html
  *
  * Contributors:
  *     Pivotal, Inc. - initial API and implementation
@@ -13,7 +13,6 @@ package org.springframework.ide.vscode.commons.yaml.path;
 import java.util.ArrayList;
 import java.util.Arrays;
 import java.util.List;
-import java.util.stream.Collectors;
 import java.util.stream.Stream;
 
 import org.springframework.ide.vscode.commons.yaml.ast.NodeRef;
@@ -21,9 +20,7 @@ import org.springframework.ide.vscode.commons.yaml.ast.NodeRef.RootRef;
 import org.springframework.ide.vscode.commons.yaml.ast.NodeRef.SeqRef;
 import org.springframework.ide.vscode.commons.yaml.ast.NodeRef.TupleValueRef;
 import org.springframework.ide.vscode.commons.yaml.ast.NodeUtil;
-import org.springframework.ide.vscode.commons.yaml.ast.YamlFileAST;
 import org.springframework.ide.vscode.commons.yaml.path.YamlPathSegment.YamlPathSegmentType;
-import org.yaml.snakeyaml.nodes.Node;
 
 import reactor.core.publisher.Flux;
 
@@ -311,6 +308,36 @@ public class YamlPath extends AbstractYamlTraversal {
 	public boolean canEmpty() {
 		//The empty path is the only one that 'canEmpty' since any step in path moves the cursor.
 		return isEmpty();
+	}
+
+	public boolean startsWith(YamlPath prefix) {
+		if (this.size()>=prefix.size()) {
+			YamlPath chopped = this.dropLast(this.size() - prefix.size());
+			return chopped.equals(prefix);
+		}
+		return false;
+	}
+
+	@Override
+	public int hashCode() {
+		final int prime = 31;
+		int result = 1;
+		result = prime * result + Arrays.hashCode(segments);
+		return result;
+	}
+
+	@Override
+	public boolean equals(Object obj) {
+		if (this == obj)
+			return true;
+		if (obj == null)
+			return false;
+		if (getClass() != obj.getClass())
+			return false;
+		YamlPath other = (YamlPath) obj;
+		if (!Arrays.equals(segments, other.segments))
+			return false;
+		return true;
 	}
 
 }

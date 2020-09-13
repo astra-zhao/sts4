@@ -1,9 +1,9 @@
 /*******************************************************************************
- * Copyright (c) 2016 Pivotal, Inc.
+ * Copyright (c) 2016, 2019 Pivotal, Inc.
  * All rights reserved. This program and the accompanying materials
  * are made available under the terms of the Eclipse Public License v1.0
  * which accompanies this distribution, and is available at
- * http://www.eclipse.org/legal/epl-v10.html
+ * https://www.eclipse.org/legal/epl-v10.html
  *
  * Contributors:
  *     Pivotal, Inc. - initial API and implementation
@@ -26,6 +26,8 @@ import org.slf4j.LoggerFactory;
 import org.springframework.ide.vscode.commons.languageserver.completion.DocumentEdits;
 import org.springframework.ide.vscode.commons.languageserver.completion.ICompletionProposal;
 import org.springframework.ide.vscode.commons.languageserver.completion.ScoreableProposal;
+import org.springframework.ide.vscode.commons.languageserver.completion.TransformedCompletion;
+import org.springframework.ide.vscode.commons.languageserver.util.PlaceHolderString;
 import org.springframework.ide.vscode.commons.util.CollectionUtil;
 import org.springframework.ide.vscode.commons.util.ExceptionUtil;
 import org.springframework.ide.vscode.commons.util.FuzzyMatcher;
@@ -98,34 +100,47 @@ public class YTypeAssistContext extends AbstractYamlAssistContext {
 				return customContentAssistant.getCompletions(completionFactory(), region, region.toRelative(offset));
 			}
 		}
-		String query = getPrefix(doc, node, offset);
-		List<ICompletionProposal> completions = getValueCompletions(doc, node, offset, query);
-		if (completions.isEmpty()) {
-			TypeBasedSnippetProvider snippetProvider = typeUtil.getSnippetProvider();
-			if (snippetProvider!=null) {
-				Collection<Snippet> snippets = snippetProvider.getSnippets(type);
-				YamlIndentUtil indenter = new YamlIndentUtil(doc);
-				for (Snippet snippet : snippets) {
-					String snippetName = snippet.getName();
-					double score = FuzzyMatcher.matchScore(query, snippetName);
-					if (score!=0.0 && snippet.isApplicable(getSchemaContext())) {
-						DocumentEdits edits = createEditFromSnippet(doc, node, offset, query, indenter, snippet);
-						completions.add(completionFactory().valueProposal(snippetName, query, snippetName, type, null, score, edits, typeUtil));
+		if (typeUtil.isTrueUnion(type)) {
+			Collection<YType> unionSubTypes = typeUtil.getUnionSubTypes(type);
+			//When a union type was not inferred to one of its subtypes...
+			//Then suggest completions for all of its subtypes since, presumably they are
+			//all valid in this context at the moment.
+			List<ICompletionProposal> completions = new ArrayList<>();
+			for (YType unionSubType : unionSubTypes) {
+				YTypeAssistContext unionContext = new YTypeAssistContext(this, unionSubType);
+				completions.addAll(unionContext.getCompletions(doc, node, offset));
+			}
+			return completions;
+		} else {
+			String query = getPrefix(doc, node, offset);
+			List<ICompletionProposal> completions = getValueCompletions(doc, node, offset, query);
+			if (completions.isEmpty()) {
+				TypeBasedSnippetProvider snippetProvider = typeUtil.getSnippetProvider();
+				if (snippetProvider!=null) {
+					Collection<Snippet> snippets = snippetProvider.getSnippets(type);
+					YamlIndentUtil indenter = new YamlIndentUtil(doc);
+					for (Snippet snippet : snippets) {
+						String snippetName = snippet.getName();
+						double score = FuzzyMatcher.matchScore(query, snippetName);
+						if (score!=0.0 && snippet.isApplicable(getSchemaContext())) {
+							DocumentEdits edits = createEditFromSnippet(doc, node, offset, query, indenter, snippet);
+							completions.add(completionFactory().valueProposal(snippetName, query, snippetName, type, null, score, edits, typeUtil));
+						}
 					}
 				}
+				completions.addAll(getKeyCompletions(doc, node, offset, query));
 			}
-			completions.addAll(getKeyCompletions(doc, node, offset, query));
+			if (typeUtil.isSequencable(type)) {
+				completions = new ArrayList<>(completions);
+				completions.addAll(getDashedCompletions(doc, node, offset));
+			}
+			return completions;
 		}
-		if (typeUtil.isSequencable(type)) {
-			completions = new ArrayList<>(completions);
-			completions.addAll(getDashedCompletions(doc, node, offset));
-		}
-		return completions;
 	}
 
 	private DocumentEdits createEditFromSnippet(YamlDocument doc, SNode node, int offset, String query, YamlIndentUtil indenter,
 			Snippet _snippet) throws Exception {
-		DocumentEdits edits = new DocumentEdits(doc.getDocument());
+		DocumentEdits edits = new DocumentEdits(doc.getDocument(), true);
 		int start = offset - query.length();
 		edits.delete(start, query);
 		int referenceIndent = doc.getColumn(start);
@@ -170,7 +185,7 @@ public class YTypeAssistContext extends AbstractYamlAssistContext {
 								edits = createEditFromSnippet(doc, node, offset, query, indenter, snippet);
 							} else {
 								//Generate edits the old-fashioned way
-								edits = new DocumentEdits(doc.getDocument());
+								edits = new DocumentEdits(doc.getDocument(), false);
 								YType YType = p.getType();
 								edits.delete(queryOffset, query);
 								int referenceIndent = doc.getColumn(queryOffset);
@@ -273,15 +288,20 @@ public class YTypeAssistContext extends AbstractYamlAssistContext {
 				double score = FuzzyMatcher.matchScore(query, value.getValue());
 				if (score!=0 && value!=null && !query.equals(value.getValue())) {
 					int queryStart = offset-query.length();
-					DocumentEdits edits = new DocumentEdits(doc.getDocument());
+					DocumentEdits edits = new DocumentEdits(doc.getDocument(), false);
 					edits.delete(queryStart, offset);
 					if (!Character.isWhitespace(doc.getChar(queryStart-1))) {
 						edits.insert(offset, " ");
 					}
 					edits.insert(offset, value.getValue());
-					String extraInsertion = value.getExtraInsertion();
+					PlaceHolderString extraInsertion = value.getExtraInsertion();
 					if (extraInsertion!=null) {
-						edits.insert(offset, indenter.applyIndentation(extraInsertion, referenceIndent));
+						String insertText = indenter.applyIndentation(extraInsertion.toString(), referenceIndent);
+						if (extraInsertion.hasPlaceHolders()) {
+							edits.insertSnippet(offset, insertText);
+						} else {
+							edits.insert(offset, insertText);
+						}
 					}
 					completions.add(completionFactory().valueProposal(
 							value.getValue(), query, value.getLabel(), type,
@@ -307,6 +327,12 @@ public class YTypeAssistContext extends AbstractYamlAssistContext {
 
 	@Override
 	public YamlAssistContext traverse(YamlPathSegment s) throws Exception {
+		YamlAssistContext result = _traverse(s);
+		logger.debug("Traversing {} with {} => {}", this, s, result);
+		return result;
+	}
+
+	protected YamlAssistContext _traverse(YamlPathSegment s) {
 		if (s.getType()==YamlPathSegmentType.VAL_AT_KEY) {
 			if (typeUtil.isSequencable(type) || typeUtil.isMap(type)) {
 				return contextWith(s, typeUtil.getDomainType(type));

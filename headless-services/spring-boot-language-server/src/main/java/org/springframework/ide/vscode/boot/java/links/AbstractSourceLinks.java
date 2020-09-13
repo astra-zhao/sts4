@@ -1,9 +1,9 @@
 /*******************************************************************************
- * Copyright (c) 2018 Pivotal, Inc.
+ * Copyright (c) 2018, 2019 Pivotal, Inc.
  * All rights reserved. This program and the accompanying materials
  * are made available under the terms of the Eclipse Public License v1.0
  * which accompanies this distribution, and is available at
- * http://www.eclipse.org/legal/epl-v10.html
+ * https://www.eclipse.org/legal/epl-v10.html
  *
  * Contributors:
  *     Pivotal, Inc. - initial API and implementation
@@ -14,7 +14,6 @@ import java.io.File;
 import java.net.URI;
 import java.net.URISyntaxException;
 import java.nio.file.Path;
-import java.nio.file.Paths;
 import java.util.Optional;
 import java.util.Stack;
 
@@ -28,8 +27,11 @@ import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.ide.vscode.boot.java.utils.CompilationUnitCache;
 import org.springframework.ide.vscode.commons.java.IClasspath;
+import org.springframework.ide.vscode.commons.java.IClasspathUtil;
+import org.springframework.ide.vscode.commons.java.IJavaModuleData;
 import org.springframework.ide.vscode.commons.java.IJavaProject;
 import org.springframework.ide.vscode.commons.javadoc.TypeUrlProviderFromContainerUrl;
+import org.springframework.ide.vscode.commons.languageserver.java.JavaProjectFinder;
 import org.springframework.ide.vscode.commons.util.text.Region;
 
 /**
@@ -44,37 +46,48 @@ public abstract class AbstractSourceLinks implements SourceLinks {
 
 	private CompilationUnitCache cuCache;
 
-	protected AbstractSourceLinks(CompilationUnitCache cuCache) {
+	private JavaProjectFinder projectFinder;
+
+	protected AbstractSourceLinks(CompilationUnitCache cuCache, JavaProjectFinder projectFinder) {
 		this.cuCache = cuCache;
+		this.projectFinder = projectFinder;
 	}
 
 	@Override
 	public Optional<String> sourceLinkUrlForFQName(IJavaProject project, String fqName) {
-		Optional<File> classpathResource = project.getIndex().findClasspathResourceContainer(fqName);
-		if (classpathResource.isPresent()) {
-			File file = classpathResource.get();
+		Optional<String> url = project == null ? Optional.empty() : getSourceLinkUrlForFQName(project, fqName);
+		if (!url.isPresent()) {
+			for (IJavaProject jp : projectFinder.all()) {
+				if (jp != project) {
+					url = getSourceLinkUrlForFQName(jp, fqName);
+					if (url.isPresent()) {
+						break;
+					}
+				}
+			}
+		}
+		return url;
+	}
+
+	private Optional<String> getSourceLinkUrlForFQName(IJavaProject project, String fqName) {
+		IJavaModuleData classpathResource = project.getIndex().findClasspathResourceContainer(fqName);
+		if (classpathResource != null) {
+			File file = classpathResource.getContainer();
 			if (file.isDirectory()) {
-				return javaSourceLinkUrl(project, fqName, file);
+				return javaSourceLinkUrl(project, fqName, classpathResource);
 			} else {
-				return jarSourceLinkUrl(project, fqName, file);
+				return jarSourceLinkUrl(project, fqName, classpathResource);
 			}
 		}
 		return Optional.empty();
 	}
 
 	@Override
-	public Optional<String> sourceLinkUrlForClasspathResource(IJavaProject project, String path) {
-		int idx = path.lastIndexOf(CLASS);
-		if (idx >= 0) {
-			Path p = Paths.get(path.substring(0, idx));
-			return sourceLinkUrlForFQName(project, p.toString().replace(File.separator, "."));
-		}
-		return Optional.empty();
+	public Optional<String> sourceLinkUrlForClasspathResource(String path) {
+		return SourceLinks.sourceLinkUrlForClasspathResource(this, projectFinder, path);
 	}
 
-
-
-	private Optional<String> javaSourceLinkUrl(IJavaProject project, String fqName, File containerFolder) {
+	private Optional<String> javaSourceLinkUrl(IJavaProject project, String fqName, IJavaModuleData folderModuleData) {
 		IClasspath classpath = project.getClasspath();
 		return SourceLinks.sourceFromSourceFolder(fqName, classpath)
 			.map(sourcePath -> javaSourceLinkUrl(project, sourcePath, fqName));
@@ -95,19 +108,19 @@ public abstract class AbstractSourceLinks implements SourceLinks {
 		return cuCache == null ? Optional.empty() : cuCache.withCompilationUnit(project, uri, compilationUnit -> Optional.ofNullable(compilationUnit));
 	}
 
-	abstract protected Optional<String> jarLinkUrl(IJavaProject project, String fqName, File jarFile);
+	abstract protected Optional<String> jarLinkUrl(IJavaProject project, String fqName, IJavaModuleData jarModuleData);
 
-	private Optional<String> jarSourceLinkUrl(IJavaProject project, String fqName, File jarFile) {
-		return jarLinkUrl(project, fqName, jarFile).map(sourceUrl -> {
-			Optional<String> positionLink = findCUForFQNameFromJar(project, jarFile, fqName).map(cu -> positionLink(cu, fqName));
+	private Optional<String> jarSourceLinkUrl(IJavaProject project, String fqName, IJavaModuleData jarModuleData) {
+		return jarLinkUrl(project, fqName, jarModuleData).map(sourceUrl -> {
+			Optional<String> positionLink = findCUForFQNameFromJar(project, jarModuleData, fqName).map(cu -> positionLink(cu, fqName));
 			return positionLink.isPresent() ? sourceUrl + positionLink.get() : sourceUrl;
 		});
 	}
 
-	private Optional<CompilationUnit> findCUForFQNameFromJar(IJavaProject project, File jarFile, String fqName) {
-		return project.sourceContainer(jarFile).map(url -> {
+	private Optional<CompilationUnit> findCUForFQNameFromJar(IJavaProject project, IJavaModuleData jarModuleData, String fqName) {
+		return IClasspathUtil.sourceContainer(project.getClasspath(), jarModuleData.getContainer()).map(url -> {
 			try {
-				return TypeUrlProviderFromContainerUrl.JAR_SOURCE_URL_PROVIDER.url(url, fqName);
+				return TypeUrlProviderFromContainerUrl.JAR_SOURCE_URL_PROVIDER.url(url, fqName, jarModuleData.getModule());
 			} catch (Exception e) {
 				log.warn("Failed to determine source URL from url={} fqName={}", url, fqName, e);
 				return null;

@@ -3,7 +3,7 @@
  * All rights reserved. This program and the accompanying materials
  * are made available under the terms of the Eclipse Public License v1.0
  * which accompanies this distribution, and is available at
- * http://www.eclipse.org/legal/epl-v10.html
+ * https://www.eclipse.org/legal/epl-v10.html
  *
  * Contributors:
  *     Pivotal, Inc. - initial API and implementation
@@ -13,6 +13,7 @@ package org.springframework.ide.vscode.java.properties.parser.test;
 import static org.junit.Assert.assertEquals;
 import static org.junit.Assert.assertNotNull;
 import static org.junit.Assert.assertTrue;
+import static org.junit.Assert.fail;
 
 import java.util.List;
 
@@ -45,7 +46,9 @@ public class PropertiesAntlrParserTest {
 			String expectedKey, String expectedEncodedKey,
 			String expectedValue, String expectedEncodedValue) {
 		ParseResults results = parser.parse(text);
-		assertTrue(results.syntaxErrors.isEmpty());
+		if (!results.syntaxErrors.isEmpty()) {
+			fail(results.syntaxErrors.get(0).getMessage());
+		}
 		assertTrue(results.problems.isEmpty());
 		assertEquals(1, results.ast.getAllNodes().size());
 		
@@ -101,6 +104,18 @@ public class PropertiesAntlrParserTest {
 	@Test
 	public void testPropertyWithColonSeparatorAndSpaces() throws Exception {
 		testPropertyLine("key \t : \t \tvalue", "key", "key", "value", " \t \tvalue");
+	}
+	
+	@Test
+	public void testPropertyWithEscapedValue() {
+		testPropertyLine("key=something \\nescapy", "key", "key", "something \nescapy", "something \\nescapy");
+		testPropertyLine("key=something \\\\escapy", "key", "key", "something \\escapy", "something \\\\escapy");
+		testPropertyLine("key=something\\:escapy", "key", "key", "something:escapy", "something\\:escapy");
+		testPropertyLine("key=something\\=escapy", "key", "key", "something=escapy", "something\\=escapy");
+		testPropertyLine("key=something\\ escapy", "key", "key", "something escapy", "something\\ escapy");
+		testPropertyLine("key=something\\'escapy", "key", "key", "something'escapy", "something\\'escapy");
+		testPropertyLine("key=something\\#escapy", "key", "key", "something#escapy", "something\\#escapy");
+		testPropertyLine("key=something\\!escapy", "key", "key", "something!escapy", "something\\!escapy");
 	}
 
 	@Test

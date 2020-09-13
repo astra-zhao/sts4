@@ -3,7 +3,7 @@
  * All rights reserved. This program and the accompanying materials
  * are made available under the terms of the Eclipse Public License v1.0
  * which accompanies this distribution, and is available at
- * http://www.eclipse.org/legal/epl-v10.html
+ * https://www.eclipse.org/legal/epl-v10.html
  *
  * Contributors:
  *     Pivotal, Inc. - initial API and implementation
@@ -18,7 +18,7 @@ import org.springframework.ide.vscode.commons.java.IJavaProject;
 import org.springframework.ide.vscode.commons.languageserver.ProgressService;
 import org.springframework.ide.vscode.commons.languageserver.java.JavaProjectFinder;
 import org.springframework.ide.vscode.commons.languageserver.java.ProjectObserver;
-import org.springframework.ide.vscode.commons.util.FuzzyMap;
+import org.springframework.ide.vscode.commons.util.FileObserver;
 import org.springframework.ide.vscode.commons.util.text.IDocument;
 
 public class DefaultSpringPropertyIndexProvider implements SpringPropertyIndexProvider {
@@ -26,15 +26,22 @@ public class DefaultSpringPropertyIndexProvider implements SpringPropertyIndexPr
 	private JavaProjectFinder javaProjectFinder;
 	private SpringPropertiesIndexManager indexManager;
 
-	private ProgressService progressService = (id, msg) -> { /*ignore*/ };
+	private Runnable changeHandler = null;
 
-	public DefaultSpringPropertyIndexProvider(JavaProjectFinder javaProjectFinder, ProjectObserver projectObserver, ValueProviderRegistry valueProviders) {
+	private ProgressService progressService = ProgressService.NO_PROGRESS;
+
+	public DefaultSpringPropertyIndexProvider(JavaProjectFinder javaProjectFinder, ProjectObserver projectObserver, FileObserver fileObserver, ValueProviderRegistry valueProviders) {
 		this.javaProjectFinder = javaProjectFinder;
-		this.indexManager = new SpringPropertiesIndexManager(valueProviders, projectObserver);
+		this.indexManager = new SpringPropertiesIndexManager(valueProviders, projectObserver, fileObserver);
+		this.indexManager.addListener(info -> {
+			if (changeHandler != null) {
+				changeHandler.run();
+			}
+		});
 	}
 
 	@Override
-	public FuzzyMap<PropertyInfo> getIndex(IDocument doc) {
+	public SpringPropertyIndex getIndex(IDocument doc) {
 		Optional<IJavaProject> jp = javaProjectFinder.find(new TextDocumentIdentifier(doc.getUri()));
 		if (jp.isPresent()) {
 			return indexManager.get(jp.get(), progressService);
@@ -44,6 +51,11 @@ public class DefaultSpringPropertyIndexProvider implements SpringPropertyIndexPr
 
 	public void setProgressService(ProgressService progressService) {
 		this.progressService = progressService;
+	}
+
+	@Override
+	public void onChange(Runnable changeHandler) {
+		this.changeHandler = changeHandler;
 	}
 
 }

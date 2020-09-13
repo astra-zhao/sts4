@@ -3,7 +3,7 @@
  * All rights reserved. This program and the accompanying materials
  * are made available under the terms of the Eclipse Public License v1.0
  * which accompanies this distribution, and is available at
- * http://www.eclipse.org/legal/epl-v10.html
+ * https://www.eclipse.org/legal/epl-v10.html
  *
  * Contributors:
  *     Pivotal, Inc. - initial API and implementation
@@ -15,6 +15,7 @@ import static org.junit.Assert.assertTrue;
 
 import org.junit.Before;
 import org.junit.Test;
+import org.springframework.ide.vscode.commons.languageserver.config.LanguageServerProperties;
 import org.springframework.ide.vscode.commons.languageserver.util.SimpleLanguageServer;
 import org.springframework.ide.vscode.commons.util.text.IDocument;
 import org.springframework.ide.vscode.commons.util.text.IRegion;
@@ -36,7 +37,7 @@ public class DocumentEditsTest {
 
 	@Before
 	public void setup() throws Exception {
-		SimpleLanguageServer server = new SimpleLanguageServer("dont-care");
+		SimpleLanguageServer server = new SimpleLanguageServer("dont-care", null, new LanguageServerProperties());
 		harness = new LanguageServerHarness(server, LanguageId.PLAINTEXT);
 	}
 
@@ -52,7 +53,7 @@ public class DocumentEditsTest {
 
 		public void reset() throws Exception {
 			this.editor = harness.newEditor(orgText);
-			this.edits = new DocumentEdits(getFreshDocument(editor));
+			this.edits = new DocumentEdits(getFreshDocument(editor), false);
 		}
 
 		private IDocument getFreshDocument(Editor editor) throws Exception {

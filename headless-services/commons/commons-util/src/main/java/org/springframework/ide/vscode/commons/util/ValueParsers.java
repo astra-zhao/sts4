@@ -3,7 +3,7 @@
  * All rights reserved. This program and the accompanying materials
  * are made available under the terms of the Eclipse Public License v1.0
  * which accompanies this distribution, and is available at
- * http://www.eclipse.org/legal/epl-v10.html
+ * https://www.eclipse.org/legal/epl-v10.html
  *
  * Contributors:
  *     Pivotal, Inc. - initial API and implementation
@@ -39,11 +39,7 @@ public class ValueParsers {
 				str = str.replace("_", ""); //Tolerate and ignore underscores in integers.
 				int value = Integer.parseInt(str);
 				if (lowerBound!=null && value<lowerBound) {
-					if (lowerBound==0) {
-						throw new NumberFormatException("Value must be positive");
-					} else {
-						throw new NumberFormatException("Value must be at least "+lowerBound);
-					}
+					throw new NumberFormatException("Value must be at least "+lowerBound);
 				}
 				if (upperBound!=null && value>upperBound) {
 					throw new NumberFormatException("Value must be at most "+upperBound);

@@ -1,9 +1,9 @@
 /*******************************************************************************
- * Copyright (c) 2017, 2018 Pivotal, Inc.
+ * Copyright (c) 2017, 2019 Pivotal, Inc.
  * All rights reserved. This program and the accompanying materials
  * are made available under the terms of the Eclipse Public License v1.0
  * which accompanies this distribution, and is available at
- * http://www.eclipse.org/legal/epl-v10.html
+ * https://www.eclipse.org/legal/epl-v10.html
  *
  * Contributors:
  *     Pivotal, Inc. - initial API and implementation
@@ -14,12 +14,14 @@ import java.io.IOException;
 import java.util.ArrayList;
 import java.util.List;
 
-import org.apache.commons.lang3.tuple.Pair;
+import org.eclipse.core.runtime.preferences.IEclipsePreferences;
+import org.eclipse.core.runtime.preferences.InstanceScope;
 import org.eclipse.jface.bindings.Binding;
 import org.eclipse.ui.PlatformUI;
 import org.eclipse.ui.keys.IBindingService;
 import org.eclipse.ui.plugin.AbstractUIPlugin;
 import org.osgi.framework.BundleContext;
+import org.springframework.ide.eclipse.boot.dash.remoteapps.RemoteBootAppsDataHolder;
 import org.springsource.ide.eclipse.commons.livexp.core.LiveSetVariable;
 
 /**
@@ -30,7 +32,7 @@ import org.springsource.ide.eclipse.commons.livexp.core.LiveSetVariable;
  */
 public class BootLanguageServerPlugin extends AbstractUIPlugin {
 	
-	public static final String ID = "org.springframework.tooling.boot.java.ls";
+	public static final String PLUGIN_ID = "org.springframework.tooling.boot.java.ls";
 
 	private static final Object LSP4E_COMMAND_SYMBOL_IN_WORKSPACE = "org.eclipse.lsp4e.symbolinworkspace";
 	
@@ -41,12 +43,16 @@ public class BootLanguageServerPlugin extends AbstractUIPlugin {
 		// Empty
 	}
 
+	public static IEclipsePreferences getPreferences() {
+		return InstanceScope.INSTANCE.getNode(PLUGIN_ID);
+	}
+
 	@Override
 	public void start(BundleContext context) throws Exception {
 		plugin = this;
 		super.start(context);
-		
 		deactivateDuplicateKeybindings();
+		BootJavaPreferencesPage.manageCodeMiningPreferences();
 	}
 
 	@Override
@@ -96,11 +102,4 @@ public class BootLanguageServerPlugin extends AbstractUIPlugin {
 			});
 		}
 	}
-	
-	private static LiveSetVariable<Pair<String,String>> remoteBootApps = new LiveSetVariable<>();
-	
-	public static LiveSetVariable<Pair<String,String>> getRemoteBootApps() {
-		return remoteBootApps;
-	}
-
 }

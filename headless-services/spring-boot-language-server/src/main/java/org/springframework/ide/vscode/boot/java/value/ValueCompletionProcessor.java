@@ -1,9 +1,9 @@
 /*******************************************************************************
- * Copyright (c) 2017, 2018 Pivotal, Inc.
+ * Copyright (c) 2017, 2019 Pivotal, Inc.
  * All rights reserved. This program and the accompanying materials
  * are made available under the terms of the Eclipse Public License v1.0
  * which accompanies this distribution, and is available at
- * http://www.eclipse.org/legal/epl-v10.html
+ * https://www.eclipse.org/legal/epl-v10.html
  *
  * Contributors:
  *     Pivotal, Inc. - initial API and implementation
@@ -12,7 +12,6 @@ package org.springframework.ide.vscode.boot.java.value;
 
 import static org.springframework.ide.vscode.commons.util.StringUtil.camelCaseToHyphens;
 
-import java.util.ArrayList;
 import java.util.Collection;
 import java.util.HashSet;
 import java.util.List;
@@ -25,7 +24,6 @@ import org.eclipse.jdt.core.dom.ITypeBinding;
 import org.eclipse.jdt.core.dom.MemberValuePair;
 import org.eclipse.jdt.core.dom.SimpleName;
 import org.eclipse.jdt.core.dom.StringLiteral;
-import org.eclipse.lsp4j.InsertTextFormat;
 import org.eclipse.lsp4j.TextDocumentIdentifier;
 import org.springframework.ide.vscode.boot.java.handlers.CompletionProvider;
 import org.springframework.ide.vscode.boot.metadata.ProjectBasedPropertyIndexProvider;
@@ -56,10 +54,8 @@ public class ValueCompletionProcessor implements CompletionProvider {
 	}
 
 	@Override
-	public Collection<ICompletionProposal> provideCompletions(ASTNode node, Annotation annotation, ITypeBinding type,
-			int offset, IDocument doc) {
-
-		List<ICompletionProposal> result = new ArrayList<>();
+	public void provideCompletions(ASTNode node, Annotation annotation, ITypeBinding type,
+			int offset, IDocument doc, Collection<ICompletionProposal> completions) {
 
 		try {
 			// case: @Value(<*>)
@@ -68,48 +64,50 @@ public class ValueCompletionProcessor implements CompletionProvider {
 
 				for (Match<PropertyInfo> match : matches) {
 
-					DocumentEdits edits = new DocumentEdits(doc);
+					DocumentEdits edits = new DocumentEdits(doc, false);
 					edits.replace(offset, offset, "\"${" + match.data.getId() + "}\"");
 
 					// PT-160455522: create a proposal with `PlainText` format type, because for vscode (but not Eclipse), if you send it as a snippet
 					// and it is "place holder" as such `"${debug}"`, vscode may treat it as a snippet place holder, and insert an empty string
 					// if it cannot resolve it. If sending this as plain text, then insertion happens correctly
-					ValuePropertyKeyProposal proposal = new ValuePropertyKeyProposal(edits, match, InsertTextFormat.PlainText);
+					ValuePropertyKeyProposal proposal = new ValuePropertyKeyProposal(edits, match);
 
-					result.add(proposal);
+					completions.add(proposal);
 				}
 			}
 			// case: @Value(prefix<*>)
 			else if (node instanceof SimpleName && node.getParent() instanceof Annotation) {
-				computeProposalsForSimpleName(node, result, offset, doc);
+				computeProposalsForSimpleName(node, completions, offset, doc);
 			}
 			// case: @Value(value=<*>)
 			else if (node instanceof SimpleName && node.getParent() instanceof MemberValuePair
 					&& "value".equals(((MemberValuePair)node.getParent()).getName().toString())) {
-				computeProposalsForSimpleName(node, result, offset, doc);
+				computeProposalsForSimpleName(node, completions, offset, doc);
 			}
 			// case: @Value("prefix<*>")
 			else if (node instanceof StringLiteral && node.getParent() instanceof Annotation) {
 				if (node.toString().startsWith("\"") && node.toString().endsWith("\"")) {
-					computeProposalsForStringLiteral(node, result, offset, doc);
+					computeProposalsForStringLiteral(node, completions, offset, doc);
 				}
 			}
 			// case: @Value(value="prefix<*>")
 			else if (node instanceof StringLiteral && node.getParent() instanceof MemberValuePair
 					&& "value".equals(((MemberValuePair)node.getParent()).getName().toString())) {
 				if (node.toString().startsWith("\"") && node.toString().endsWith("\"")) {
-					computeProposalsForStringLiteral(node, result, offset, doc);
+					computeProposalsForStringLiteral(node, completions, offset, doc);
 				}
 			}
 		}
 		catch (Exception e) {
 			e.printStackTrace();
 		}
-
-		return result;
 	}
 
-	private void computeProposalsForSimpleName(ASTNode node, List<ICompletionProposal> completions, int offset,
+	@Override
+	public void provideCompletions(ASTNode node, int offset, IDocument doc, Collection<ICompletionProposal> completions) {
+	}
+
+	private void computeProposalsForSimpleName(ASTNode node, Collection<ICompletionProposal> completions, int offset,
 			IDocument doc) {
 		String prefix = identifyPropertyPrefix(node.toString(), offset - node.getStartPosition());
 
@@ -123,16 +121,16 @@ public class ValueCompletionProcessor implements CompletionProvider {
 
 		for (Match<PropertyInfo> match : matches) {
 
-			DocumentEdits edits = new DocumentEdits(doc);
+			DocumentEdits edits = new DocumentEdits(doc, false);
 			edits.replace(startOffset, endOffset, proposalPrefix + "${" + match.data.getId() + "}" + proposalPostfix);
 
-			ValuePropertyKeyProposal proposal = new ValuePropertyKeyProposal(edits, match, InsertTextFormat.PlainText);
+			ValuePropertyKeyProposal proposal = new ValuePropertyKeyProposal(edits, match);
 
 			completions.add(proposal);
 		}
 	}
 
-	private void computeProposalsForStringLiteral(ASTNode node, List<ICompletionProposal> completions, int offset,
+	private void computeProposalsForStringLiteral(ASTNode node, Collection<ICompletionProposal> completions, int offset,
 			IDocument doc) throws BadLocationException {
 		String prefix = identifyPropertyPrefix(doc.get(node.getStartPosition() + 1, offset - (node.getStartPosition() + 1)), offset - (node.getStartPosition() + 1));
 
@@ -159,13 +157,13 @@ public class ValueCompletionProcessor implements CompletionProvider {
 
 		for (Match<PropertyInfo> match : matches) {
 
-			DocumentEdits edits = new DocumentEdits(doc);
+			DocumentEdits edits = new DocumentEdits(doc, false);
 			edits.replace(startOffset, endOffset, preCompletion + match.data.getId() + postCompletion);
 
 			// PT 160455522: create a proposal with `PlainText` format type, because for vscode (but not Eclipse), if you send it as a snippet
 			// and the proposal value is "place holder" as such `"${debug}"`, vscode may treat it as a snippet place holder, and insert an empty string
 			// if it cannot resolve it. If sending this as plain text, then insertion happens correctly
-			ValuePropertyKeyProposal proposal = new ValuePropertyKeyProposal(edits, match, InsertTextFormat.PlainText);
+			ValuePropertyKeyProposal proposal = new ValuePropertyKeyProposal(edits, match);
 
 			completions.add(proposal);
 		}
@@ -203,7 +201,7 @@ public class ValueCompletionProcessor implements CompletionProvider {
 	}
 
 	private List<Match<PropertyInfo>> findMatches(String prefix, IDocument doc) {
-		FuzzyMap<PropertyInfo> index = indexProvider.getIndex(doc);
+		FuzzyMap<PropertyInfo> index = indexProvider.getIndex(doc).getProperties();
 		List<Match<PropertyInfo>> matches =index.find(camelCaseToHyphens(prefix));
 
 		//First the 'real' properties.

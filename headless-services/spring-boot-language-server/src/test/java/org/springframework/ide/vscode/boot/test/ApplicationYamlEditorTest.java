@@ -1,9 +1,9 @@
 /*******************************************************************************
- * Copyright (c) 2016, 2018 Pivotal, Inc.
+ * Copyright (c) 2016, 2019 Pivotal, Inc.
  * All rights reserved. This program and the accompanying materials
  * are made available under the terms of the Eclipse Public License v1.0
  * which accompanies this distribution, and is available at
- * http://www.eclipse.org/legal/epl-v10.html
+ * https://www.eclipse.org/legal/epl-v10.html
  *
  * Contributors:
  *     Pivotal, Inc. - initial API and implementation
@@ -11,17 +11,23 @@
 package org.springframework.ide.vscode.boot.test;
 
 import static org.junit.Assert.assertEquals;
+import static org.junit.Assert.assertFalse;
 import static org.junit.Assert.assertNotNull;
 import static org.junit.Assert.assertTrue;
 import static org.springframework.ide.vscode.boot.test.DefinitionLinkAsserts.field;
 import static org.springframework.ide.vscode.boot.test.DefinitionLinkAsserts.method;
 import static org.springframework.ide.vscode.languageserver.testharness.Editor.INDENTED_COMPLETION;
 
+import java.io.File;
 import java.time.Duration;
+import java.util.List;
 import java.util.Optional;
 
-import org.eclipse.lsp4j.CompletionItem;
+import org.apache.commons.io.FileUtils;
 import org.eclipse.lsp4j.Diagnostic;
+import org.eclipse.lsp4j.DiagnosticSeverity;
+import org.junit.After;
+import org.junit.Before;
 import org.junit.Ignore;
 import org.junit.Test;
 import org.junit.runner.RunWith;
@@ -31,17 +37,22 @@ import org.springframework.context.annotation.Configuration;
 import org.springframework.context.annotation.Import;
 import org.springframework.ide.vscode.boot.bootiful.BootLanguageServerTest;
 import org.springframework.ide.vscode.boot.bootiful.PropertyEditorTestConf;
+import org.springframework.ide.vscode.boot.configurationmetadata.Deprecation.Level;
 import org.springframework.ide.vscode.boot.editor.harness.AbstractPropsEditorTest;
-import org.springframework.ide.vscode.boot.editor.harness.StyledStringMatcher;
 import org.springframework.ide.vscode.boot.metadata.CachingValueProvider;
 import org.springframework.ide.vscode.boot.metadata.PropertyInfo;
+import org.springframework.ide.vscode.boot.properties.quickfix.MissingPropertyData;
+import org.springframework.ide.vscode.commons.jandex.MethodImpl;
+import org.springframework.ide.vscode.commons.jandex.TestDataProvider;
 import org.springframework.ide.vscode.commons.java.IJavaProject;
 import org.springframework.ide.vscode.commons.maven.java.MavenJavaProject;
 import org.springframework.ide.vscode.commons.util.RunnableWithException;
 import org.springframework.ide.vscode.commons.util.StringUtil;
 import org.springframework.ide.vscode.commons.util.text.LanguageId;
+import org.springframework.ide.vscode.languageserver.testharness.CodeAction;
 import org.springframework.ide.vscode.languageserver.testharness.Editor;
 import org.springframework.test.context.junit4.SpringRunner;
+
 
 /**
  * This class is a placeholder where we will attempt to copy and port
@@ -52,13 +63,13 @@ import org.springframework.test.context.junit4.SpringRunner;
  */
 @RunWith(SpringRunner.class)
 @BootLanguageServerTest
-@Import(PropertyEditorTestConf.class)
+@Import({PropertyEditorTestConf.class, ApplicationYamlEditorTest.TestConf.class})
 public class ApplicationYamlEditorTest extends AbstractPropsEditorTest {
 
 	@Autowired
 	private DefinitionLinkAsserts definitionLinkAsserts;
 
-	@Configuration static class TestConf {
+	@Configuration public static class TestConf {
 		@Bean LanguageId defaultLanguageId() {
 			return LanguageId.BOOT_PROPERTIES_YAML;
 		}
@@ -67,7 +78,319 @@ public class ApplicationYamlEditorTest extends AbstractPropsEditorTest {
 		}
 	}
 
+	@Before
+	public void setup() {
+		MethodImpl.testDataProvider = new TestDataProvider();
+	}
+
+	@After
+	public void cleanups() {
+		MethodImpl.testDataProvider = null;
+	}
+	
 	////////////////////////////////////////////////////////////////////////////////////////
+
+	@Test public void GH_190_tolerate_placeholders_without_quotes_integer() throws Exception {
+		data("server.port", "java.lang.Integer", null, null);
+		Editor editor = harness.newEditor(
+				"server:\n" + 
+				"  port: @port@\n" +
+				"bad: problem"
+		);
+		editor.assertProblems(
+				"bad|Unknown"
+		);
+	}
+	
+	@Test public void GH_190_tolerate_placeholders_without_quotes() throws Exception {
+		//See: https://github.com/spring-projects/sts4/issues/190
+		data("info.build", "java.util.Map<String,String>", null, null);
+		Editor editor = harness.newEditor(
+				"info:\n" + 
+				"  build:\n" + 
+				"    artifact: @project.artifactId@\n" + 
+				"    name: @project.name@\n" + 
+				"    description: @project.description@\n" + 
+				"    version: @project.version@\n" +
+				"bad: problem"
+		);
+		editor.assertProblems(
+				"bad|Unknown"
+		);
+	}
+	
+	@Test public void GH_449_inheritedPropertiesInListValues() throws Exception {
+		//See: https://github.com/spring-projects/sts4/issues/449
+		MavenJavaProject p = createPredefinedMavenProject("gh_449");
+		useProject(p);
+		
+		// Validation
+		Editor editor = harness.newEditor(
+				"myprops:\n" + 
+				"  nested:\n" + 
+				"  - foo: fv\n" + 
+				"    bar: bv\n" +
+				"    bad: bad"
+		);
+		editor.assertProblems(
+				"bad|Unknown"
+		);
+				
+		// Completion
+		editor = harness.newEditor(
+				"myprops:\n" + 
+				"  nested:\n" + 
+				"  - <*>"
+		);
+		editor.assertContextualCompletions("<*>"
+				, // ==>
+				"bar: <*>",
+				"foo: <*>"
+		);
+	}
+	
+	@Test public void GH_427_completionInDollarReference() throws Exception {
+		defaultTestData();
+		Editor editor = newEditor(
+				"server:\n" + 
+				"  port: 8006\n" + 
+				"\n" + 
+				"spring:\n" + 
+				"  application:\n" + 
+				"    name: dadada\n" + 
+				"  cloud:\n" + 
+				"    consul:\n" + 
+				"      host: localhost\n" + 
+				"      port: 8500\n" + 
+				"      discovery:\n" + 
+				"        service-name: ${<*>}"
+		);
+	
+		editor.assertContextualCompletions("spring.appnam<*>", 
+				"spring.application.name<*>",
+				"spring.data.rest.page-param-name<*>",
+				"spring.jackson.property-naming-strategy<*>"
+		);
+		
+		editor.assertContextualCompletions("appnam<*>", 
+				"spring.application.name<*>",
+				"spring.data.rest.page-param-name<*>",
+				"spring.jackson.property-naming-strategy<*>"
+		);
+		
+		editor = newEditor(
+				"spring:\n" + 
+				"  application:\n" + 
+				"    name: ${<*>\n" 
+		);
+		editor.assertContextualCompletions("servport<*>",
+				"server.port}<*>",
+				"server.tomcat.port-header}<*>"
+		);
+	}
+	
+	@Test public void GH_420_anchorReference() throws Exception {
+		Editor editor;
+		data("config.bob", "java.lang.String", null, null);
+		data("config.dude", "java.lang.String", null, null);
+		
+		editor = newEditor(
+			"configref: &config\n" + 
+			"  bob: bob\n" + 
+			"  asdf: dude\n" + 
+			"config:\n" + 
+			"  <<: *config"
+		);
+		editor.assertProblems("asdf|Unknown");
+		
+		editor = newEditor(
+			"configref: &config\n" + 
+			"  bob: bob\n" + 
+			"  asdf: dude\n" + 
+			"config: *config"
+		);
+		editor.assertProblems(
+				"asdf|Unknown"
+		);
+	}
+	
+	@Test public void GH_404_ConstructorBinding_support() throws Exception {
+		useProject(createPredefinedMavenProject("gh_404"));
+		Editor editor;
+		
+		MethodImpl.testDataProvider.methodParams("Ltest/NestedConfigProperties;.<init>(Ljava/lang/String;)V", "dude");
+		
+		editor = newEditor(
+				"someConfig:\n" + 
+				"  nested:\n" + 
+				"    <*>"
+		);
+		editor.assertCompletionLabels("dude"); //Only the property from constructor binding, not the one from setter!
+
+		editor = newEditor(
+				"some-config:\n" + 
+				"  nested:\n" + 
+				"    <*>"
+		);
+		editor.assertCompletionLabels("dude"); //Only the property from constructor binding, not the one from setter!
+
+		editor = newEditor(
+				"someConfig:\n" + 
+				"  nested:\n" + 
+				"    bob: bob\n" +
+				"    dude: dude\n" +
+				"    bogus: bad\n"
+		);
+		editor.assertProblems(
+				"bob|Unknown",
+				"bogus|Unknown"
+		);
+	}
+	
+	@Test public void abbreviateLongPrefixCompletions() throws Exception {
+		//See: https://github.com/spring-projects/sts4/issues/361
+		Editor editor;
+		
+		data("spring.data.jpa.very.long.foobar", "java.lang.String", null, null);
+		data("spring.data.jpa.very.long.barbar", "java.lang.String", null, null);
+		data("spring.data.jpa.very.long.foofoo", "java.lang.String", null, null);
+		data("spring.data.jpa.very.long.barfoo", "java.lang.String", null, null);
+		data("spring.data.jpa.very.long.foobar.more", "java.lang.String", null, null);
+		data("spring.data.jpa.very.long.barbar.more", "java.lang.String", null, null);
+		data("spring.data.jpa.very.long.foofoo.more", "java.lang.String", null, null);
+		data("spring.data.jpa.very.long.barfoo.more", "java.lang.String", null, null);
+		
+		
+		editor = newEditor(
+				"spring:\n" +
+				"  data:\n" +
+				"    jpa:\n" +
+				"      very:\n" +
+				"        bar<*>"
+		);
+		editor.assertCompletions(
+				"spring:\n" +
+				"  data:\n" +
+				"    jpa:\n" +
+				"      very:\n" +
+				"        long:\n" +
+				"          barbar: <*>",
+				"spring:\n" +
+				"  data:\n" +
+				"    jpa:\n" +
+				"      very:\n" +
+				"        long:\n" +
+				"          barfoo: <*>",
+				"spring:\n" +
+				"  data:\n" +
+				"    jpa:\n" +
+				"      very:\n" +
+				"        long:\n" +
+				"          foobar: <*>",
+				"spring:\n" +
+				"  data:\n" +
+				"    jpa:\n" +
+				"      very:\n" +
+				"        long:\n" +
+				"          barbar:\n"+
+				"            more: <*>",
+				"spring:\n" +
+				"  data:\n" +
+				"    jpa:\n" +
+				"      very:\n" +
+				"        long:\n" +
+				"          barfoo:\n"+
+				"            more: <*>",
+				"spring:\n" +
+				"  data:\n" +
+				"    jpa:\n" +
+				"      very:\n" +
+				"        long:\n" +
+				"          foobar:\n"+
+				"            more: <*>"
+		);
+		
+		editor.assertCompletionLabels(
+				"long.barbar",
+				"long.barfoo", 
+				"long.foobar", 
+				"long.barbar.more", 
+				"long.barfoo.more", 
+				"long.foobar.more"
+		);
+		
+		editor = newEditor(
+				"spring:\n" +
+				"  data:\n" +
+				"    jpa:\n" +
+				"      vr<*>"
+		);
+		editor.assertCompletionLabels(
+				"very.long.barbar",
+				"very.long.barfoo", 
+				"very.long.foobar", 
+				"very.long.foofoo",
+				"very.long.barbar.more", 
+				"very.long.barfoo.more", 
+				"very.long.foobar.more",
+				"very.long.foofoo.more"
+		);
+		
+	}
+
+	
+	@Test public void bug_GH_327() throws Exception {
+		//See https://github.com/spring-projects/sts4/issues/327
+		data("spring.resources.static-locations", "java.lang.Boolean", null, "Blah");
+		data("spring.devtools.restart.additional-paths", "java.lang.Boolean", null, "Blah blah");
+		
+		Editor editor;
+
+		// basic check
+		editor = harness.newEditor(
+				"spring:\n" + 
+				"  resources:\n" + 
+				"    static_locations: true\n" + 
+				"  devtools:\n" + 
+				"    restart:\n" + 
+				"      additional_paths: false\n"
+		);
+		editor.assertProblems(/*NONE*/);
+
+		//Also check whether reconciler understands the structure when inside of a 'relaxed' name key 
+		editor = harness.newEditor(
+				"spring:\n" + 
+				"  resources:\n" + 
+				"    static_locations: bad\n" + 
+				"  devtools:\n" + 
+				"    restart:\n" + 
+				"      additional_paths: wrong\n"
+		);
+		editor.assertProblems(
+				"bad|boolean",
+				"wrong|boolean"
+		);
+	}
+	
+	@Test public void bug_165724475() throws Exception {
+		//See: 
+		// https://www.pivotaltracker.com/story/show/165724475
+		// https://github.com/spring-projects/spring-ide/issues/376
+		
+		defaultTestData();
+		
+		Editor editor = harness.newEditor(
+				"server:\n" + 
+				"  port: bork\n" + 
+				"logging.level.org.springframework.kafka.listener.[KafkaMessageListenerContainer$ListenerConsumer]: INFO\n" + 
+				"bogus: bad"
+		);
+		editor.assertProblems(
+				"bork|Expecting a 'int'",
+				"logging.level.org.springframework.kafka.listener.[KafkaMessageListenerContainer$ListenerConsumer]|Unknown property",
+				"bogus|Unknown property"
+		);
+	}
 
 	@Test public void inheritedPojoProperties() throws Exception {
 		//See https://github.com/spring-projects/sts4/issues/116
@@ -85,7 +408,7 @@ public class ApplicationYamlEditorTest extends AbstractPropsEditorTest {
 		);
 		editor.assertProblems(/*NONE*/);
 	}
-
+	
 	@Test public void bug_158348104() throws Exception {
 		//See: https://www.pivotaltracker.com/story/show/158348104
 		data("spring.activemq.close-timeout", "java.time.Duration", null, null);
@@ -254,6 +577,58 @@ public class ApplicationYamlEditorTest extends AbstractPropsEditorTest {
 				"  address: bark\n" +
 				"  port: <*>\n"
 		);
+	}
+
+	@Test public void userDefinedLoggingGroupsValueCompletions() throws Exception {
+		useProject(createPredefinedMavenProject("empty-boot-2.1.0-app"));
+
+		assertCompletionWithLabel(
+				"logging:\n" +
+				"  group:\n"+
+				"    whatever:\n" +
+				"    - demo<*>"
+				, //==============
+				"com.example.demo",
+				//=>
+				"logging:\n" +
+				"  group:\n"+
+				"    whatever:\n" +
+				"    - com.example.demo<*>"
+		);
+
+		assertCompletionWithLabel(
+				"logging:\n" +
+				"  group:\n"+
+				"    whatever: demo<*>"
+				, //==============
+				"com.example.demo",
+				//=>
+				"logging:\n" +
+				"  group:\n"+
+				"    whatever: com.example.demo<*>"
+		);
+
+		assertCompletionWithLabel(
+				"logging:\n" +
+				"  group:\n"+
+				"    whatever: stuff,demo<*>"
+				, //==============
+				"com.example.demo",
+				//=>
+				"logging:\n" +
+				"  group:\n"+
+				"    whatever: stuff,com.example.demo<*>"
+		);
+
+		//Check whether the added parameter to disable group name hints is obeyed:
+		assertNoCompletionWithLabel(
+				"logging:\n" +
+				"  group:\n"+
+				"    whatever: <*>"
+			,
+				"foobar"
+		);
+
 	}
 
 	///////////////////// ported tests from old STS code base ////////////////////////////////////////////////
@@ -432,8 +807,33 @@ public class ApplicationYamlEditorTest extends AbstractPropsEditorTest {
 				"    getter-only: getme\n"
 		);
 
-		definitionLinkAsserts.assertLinkTargets(editor, "data", project, method("demo.FooProperties", "setData", "demo.ColorData"));
-		definitionLinkAsserts.assertLinkTargets(editor, "wavelen", project, method("demo.ColorData", "setWavelen", "double"));
+		definitionLinkAsserts.assertLinkTargets(editor, "data", project, editor.rangeOf("data:", "data"), method("demo.FooProperties", "setData", "demo.ColorData"));
+		definitionLinkAsserts.assertLinkTargets(editor, "wavelen", project, editor.rangeOf("wavelen:", "wavelen"), method("demo.ColorData", "setWavelen", "double"));
+	}
+	
+	@Test
+	public void testInheritedPropertyLinkTarget() throws Exception {
+		//See: https://github.com/spring-projects/sts4/issues/326
+		MavenJavaProject project = createPredefinedMavenProject("super-property-nav-sample");
+		useProject(project);
+
+		Editor editor = harness.newEditor(
+				"initializr:\n" + 
+				"  languages:\n" + 
+				"  - name: foo\n" + 
+				"    id: yada\n" + 
+				"    default: false\n" +
+				"    bogus: whatever\n"
+		);
+
+		//io.spring.initializr.metadata.DefaultMetadataElement.setDefault(boolean)
+		//io.spring.initializr.metadata.MetadataElement.setId(String)
+		//io.spring.initializr.metadata.MetadataElement.setName(String)
+		definitionLinkAsserts.assertLinkTargets(editor, "name", project, editor.rangeOf("name:", "name"), method("io.spring.initializr.metadata.MetadataElement", "setName", "java.lang.String"));
+		definitionLinkAsserts.assertLinkTargets(editor, "id", project, editor.rangeOf("id:", "id"), method("io.spring.initializr.metadata.MetadataElement", "setId", "java.lang.String"));
+		definitionLinkAsserts.assertLinkTargets(editor, "default", project, editor.rangeOf("default:", "default"), method("io.spring.initializr.metadata.DefaultMetadataElement", "setDefault", "boolean"));
+		
+		definitionLinkAsserts.assertLinkTargets(editor, "bogus", project, editor.rangeOf("bogus", "bogus") /*NONE*/);
 	}
 
 	@Test public void testHyperlinkTargets() throws Exception {
@@ -451,14 +851,17 @@ public class ApplicationYamlEditorTest extends AbstractPropsEditorTest {
 		);
 
 		definitionLinkAsserts.assertLinkTargets(editor, "port", p,
+				editor.rangeOf("port", "port"),
 				method("org.springframework.boot.autoconfigure.web.ServerProperties", "setPort", "java.lang.Integer")
 		);
 		definitionLinkAsserts.assertLinkTargets(editor, "login-", p,
+				editor.rangeOf("login-timeout"),
 				method("org.springframework.boot.autoconfigure.jdbc.DataSourceConfigMetadata", "hikariDataSource"),
 				method("org.springframework.boot.autoconfigure.jdbc.DataSourceConfigMetadata", "tomcatDataSource"),
 				method("org.springframework.boot.autoconfigure.jdbc.DataSourceConfigMetadata", "dbcpDataSource")
 		);
 		definitionLinkAsserts.assertLinkTargets(editor, "init-sql", p,
+				editor.rangeOf("init-sqls", "init-sqls"),
 				method("org.springframework.boot.autoconfigure.flyway.FlywayProperties", "setInitSqls", "java.util.List"));
 	}
 
@@ -756,7 +1159,7 @@ public class ApplicationYamlEditorTest extends AbstractPropsEditorTest {
 	@Test public void testReconcileBeanPropName() throws Exception {
 		IJavaProject p = createPredefinedMavenProject("boot-1.2.1-app-properties-list-of-pojo");
 		useProject(p);
-		assertNotNull(p.findType("demo.Foo"));
+		assertNotNull(p.getIndex().findType("demo.Foo"));
 		data("some-foo", "demo.Foo", null, "some Foo pojo property");
 		Editor editor = newEditor(
 				"some-foo:\n" +
@@ -788,7 +1191,7 @@ public class ApplicationYamlEditorTest extends AbstractPropsEditorTest {
 	@Test public void testReconcilePojoArray() throws Exception {
 		IJavaProject p = createPredefinedMavenProject("boot-1.2.1-app-properties-list-of-pojo");
 		useProject(p);
-		assertNotNull(p.findType("demo.Foo"));
+		assertNotNull(p.getIndex().findType("demo.Foo"));
 
 		{
 			Editor editor = newEditor(
@@ -865,7 +1268,7 @@ public class ApplicationYamlEditorTest extends AbstractPropsEditorTest {
 	@Test public void testEnumPropertyReconciling() throws Exception {
 		IJavaProject p = createPredefinedMavenProject("enums-boot-1.3.2-app");
 		useProject(p);
-		assertNotNull(p.findType("demo.Color"));
+		assertNotNull(p.getIndex().findType("demo.Color"));
 
 		data("foo.color", "demo.Color", null, "A foonky colour");
 		Editor editor = newEditor(
@@ -1826,7 +2229,22 @@ public class ApplicationYamlEditorTest extends AbstractPropsEditorTest {
 		);
 	}
 
-	@Ignore @Test public void testEnumMapKeyCompletion() throws Exception {
+	@Test public void testInnerTypeEnumMapKeyCompletion() throws Exception {
+		useProject(createPredefinedMavenProject("enums-boot-1.3.2-app"));
+
+		data("foo.notes", "java.util.Map<demo.FooProperties.Weekdays,java.lang.String>", null, "Map weekdays to notes");
+
+		assertCompletionsDisplayString(
+				"foo:\n" +
+				"  notes:\n" +
+				"    <*>",
+				true,
+				//=>
+				"monday : String", "tuesday : String", "wednesday : String", "thursday : String", "friday : String", "saturday : String", "sunday : String"
+		);
+	}
+
+	@Test public void testEnumMapKeyCompletion() throws Exception {
 		useProject(createPredefinedMavenProject("enums-boot-1.3.2-app"));
 
 		data("foo.color-names", "java.util.Map<demo.Color,java.lang.String>", null, "Map with colors in its keys");
@@ -1857,6 +2275,7 @@ public class ApplicationYamlEditorTest extends AbstractPropsEditorTest {
 				"foo:\n" +
 				"  color-names:\n" +
 				"    <*>",
+				true,
 				//=>
 				"blue : String", "green : String", "red : String"
 		);
@@ -1929,12 +2348,14 @@ public class ApplicationYamlEditorTest extends AbstractPropsEditorTest {
 				"foo:\n" +
 				"  color-data:\n" +
 				"    <*>",
+				true,
 				"red : demo.ColorData", "green : demo.ColorData", "blue : demo.ColorData"
 		);
 
 		assertCompletionsDisplayString(
 				"foo:\n" +
 				"  color-data: <*>\n",
+				true,
 				"red : demo.ColorData", "green : demo.ColorData", "blue : demo.ColorData"
 		);
 
@@ -2047,7 +2468,7 @@ public class ApplicationYamlEditorTest extends AbstractPropsEditorTest {
 	@Ignore @Test public void testEnumsInLowerCaseContentAssist() throws Exception {
 		IJavaProject p = createPredefinedMavenProject("enums-boot-1.3.2-app");
 		useProject(p);
-		assertNotNull(p.findType("demo.ClothingSize"));
+		assertNotNull(p.getIndex().findType("demo.ClothingSize"));
 
 		data("simple.pants.size", "demo.ClothingSize", null, "The simple pant's size");
 
@@ -2599,23 +3020,27 @@ public class ApplicationYamlEditorTest extends AbstractPropsEditorTest {
 		);
 	}
 
-	@Ignore @Test public void testDeprecatedPropertyCompletion() throws Exception {
+	@Test public void testDeprecatedPropertyCompletion() throws Exception {
 		data("error.path", "java.lang.String", null, "Path of the error controller.");
 		data("server.error.path", "java.lang.String", null, "Path of the error controller.");
 		deprecate("error.path", "server.error.path", "This is old.");
 		assertCompletionsDisplayString(
-				"errorpa<*>"
-				, // =>
+				"errorpa<*>",
+				true, // =>
 				"server.error.path : String", // should be first because it is not deprecated, even though it is not as good a pattern match
 				"error.path : String"
 		);
-		assertStyledCompletions("error.pa<*>",
-				StyledStringMatcher.plainFont("server.error.path : String"),
-				StyledStringMatcher.strikeout("error.path")
-		);
+		assertCompletionDetailsWithDeprecation("error.pa<*>", "server.error.path", "String", null, null);
+		assertCompletionDetailsWithDeprecation("error.pa<*>", "error.path", "String",
+				"~~error.path~~ \u2192 server.error.path  \n" +
+				"\n" +
+				"Path of the error controller.\n" +
+				"\n" +
+				"**Deprecated:** This is old",
+				Boolean.TRUE);
 	}
 
-	@Ignore @Test public void testDeprecatedPropertyHoverInfo() throws Exception {
+	@Test public void testDeprecatedPropertyHoverInfo() throws Exception {
 		data("error.path", "java.lang.String", null, "Path of the error controller.");
 		Editor editor = newEditor(
 				"# a comment\n"+
@@ -2624,21 +3049,21 @@ public class ApplicationYamlEditorTest extends AbstractPropsEditorTest {
 		);
 
 		deprecate("error.path", "server.error.path", null);
-		editor.assertHoverContains("path", "<s>error.path</s> -&gt; server.error.path");
-		editor.assertHoverContains("path", "<b>Deprecated!</b>");
+		editor.assertHoverContains("path", "~~error.path~~ \u2192 server.error.path");
+		editor.assertHoverContains("path", "**Deprecated!**");
 
 		deprecate("error.path", "server.error.path", "This is old.");
-		editor.assertHoverContains("path", "<s>error.path</s> -&gt; server.error.path");
-		editor.assertHoverContains("path", "<b>Deprecated: </b>This is old");
+		editor.assertHoverContains("path", "~~error.path~~ \u2192 server.error.path");
+		editor.assertHoverContains("path", "**Deprecated:** This is old");
 
 		deprecate("error.path", null, "This is old.");
-		editor.assertHoverContains("path", "<b>Deprecated: </b>This is old");
+		editor.assertHoverContains("path", "**Deprecated:** This is old");
 
 		deprecate("error.path", null, null);
-		editor.assertHoverContains("path", "<b>Deprecated!</b>");
+		editor.assertHoverContains("path", "**Deprecated!**");
 	}
 
-	@Ignore @Test public void testDeprecatedBeanPropertyHoverInfo() throws Exception {
+	@Test public void testDeprecatedBeanPropertyHoverInfo() throws Exception {
 		IJavaProject jp = createPredefinedMavenProject("tricky-getters-boot-1.3.1-app");
 		useProject(jp);
 		data("foo", "demo.Deprecater", null, "A bean with deprecated property.");
@@ -2648,7 +3073,7 @@ public class ApplicationYamlEditorTest extends AbstractPropsEditorTest {
 				"  name: foo\n"
 		);
 
-		editor.assertHoverContains("name", "<b>Deprecated!</b>");
+		editor.assertHoverContains("name", "**Deprecated!**");
 	}
 
 	@Test public void testDeprecatedBeanPropertyReconcile() throws Exception {
@@ -2684,22 +3109,131 @@ public class ApplicationYamlEditorTest extends AbstractPropsEditorTest {
 
 	}
 
-	@Ignore @Test public void testDeprecatedBeanPropertyCompletions() throws Exception {
+	@Test public void testDeprecatedBeanPropertyCompletions() throws Exception {
 		IJavaProject jp = createPredefinedMavenProject("tricky-getters-boot-1.3.1-app");
 		useProject(jp);
 		data("foo", "demo.Deprecater", null, "A Bean with deprecated properties");
 
-		assertStyledCompletions(
-				"foo:\n" +
-				"  nam<*>"
-				, // =>
-				StyledStringMatcher.plainFont("new-name : String"),
-				StyledStringMatcher.strikeout("name"),
-				StyledStringMatcher.strikeout("alt-name")
-		);
+		assertCompletionDetailsWithDeprecation("foo:\n  nam<*>", "new-name", "String", null, null);
+		assertCompletionDetailsWithDeprecation("foo:\n  nam<*>", "name", "String", null, Boolean.TRUE);
+		assertCompletionDetailsWithDeprecation("foo:\n  nam<*>", "alt-name", "String", null, Boolean.TRUE);
 	}
 
-	@Ignore @Test public void testDeprecatedPropertyQuickfixSimple() throws Exception {
+	@Test public void missingPropertyQuickfix_1() throws Exception {
+		IJavaProject p = createPredefinedMavenProject("empty-boot-2.1.0-app");
+		useProject(p);
+		File location = new File(p.getLocationUri());
+		
+		File metadata_rsrc = new File(location, "src/main/resources/META-INF/additional-spring-configuration-metadata.json");
+		File metadata_java = new File(location, "src/main/java/META-INF/additional-spring-configuration-metadata.json");
+		
+		assertFalse(
+			metadata_rsrc.exists()
+		);
+		assertFalse(
+			metadata_java.exists()
+		);
+		try {
+			Editor editor = newEditor(
+					"myapp:\n" + 
+					"  orders:\n" + 
+					"    pages: 10"
+			);
+			Diagnostic problem = editor.assertProblems("myapp|Unknown").get(0);
+			CodeAction fix = editor.assertQuickfixes(problem, "Create metadata for `myapp.orders.pages`").get(0);
+			assertEquals("myapp.orders.pages", getMissingPropertyName(fix));
+			
+			fix.perform();
+			assertTrue(metadata_rsrc.exists());
+			assertEquals(
+					"{\"properties\": [{\n" + 
+					"  \"name\": \"myapp.orders.pages\",\n" + 
+					"  \"type\": \"java.lang.String\",\n" + 
+					"  \"description\": \"A description for 'myapp.orders.pages'\"\n" + 
+					"}]}",
+					FileUtils.readFileToString(metadata_rsrc, "utf8")
+			);
+			
+		} finally {
+			FileUtils.deleteQuietly(new File(location, "src/main/resources/META-INF"));
+			FileUtils.deleteQuietly(new File(location, "src/main/java/META-INF"));
+		}
+	}
+	
+	private String getMissingPropertyName(CodeAction fix) {
+		String cmd = fix.command.getCommand();
+		assertEquals("sts.vscode-spring-boot.codeAction", cmd);
+		List<Object> args = fix.command.getArguments();
+		assertEquals("MISSING_PROPERTY_APP", args.get(0));
+		MissingPropertyData data = (MissingPropertyData) args.get(1);
+		return data.getProperty();
+	}
+
+	@Test public void missingPropertyQuickfix_2() throws Exception {
+		IJavaProject p = createPredefinedMavenProject("empty-boot-2.1.0-app");
+		useProject(p);
+		File location = new File(p.getLocationUri());
+		
+		File metadata_rsrc = new File(location, "src/main/resources/META-INF/additional-spring-configuration-metadata.json");
+		File metadata_java = new File(location, "src/main/java/META-INF/additional-spring-configuration-metadata.json");
+		
+		assertFalse(
+			metadata_rsrc.exists()
+		);
+		assertFalse(
+			metadata_java.exists()
+		);
+		try {
+			Editor editor = newEditor(
+					"myapp:\n" + 
+					"  orders:\n" + 
+					"    pageSize: 10"
+			);
+			Diagnostic problem = editor.assertProblems("myapp|Unknown").get(0);
+			CodeAction fix = editor.assertQuickfixes(problem, "Create metadata for `myapp.orders.page-size`").get(0);
+			assertEquals("myapp.orders.page-size", getMissingPropertyName(fix));
+		} finally {
+			FileUtils.deleteQuietly(new File(location, "src/main/resources/META-INF"));
+			FileUtils.deleteQuietly(new File(location, "src/main/java/META-INF"));
+		}
+	}
+
+	@Test public void missingPropertyQuickfix_3() throws Exception {
+		IJavaProject p = createPredefinedMavenProject("empty-boot-2.1.0-app");
+		useProject(p);
+		File location = new File(p.getLocationUri());
+		
+		File metadata_rsrc = new File(location, "src/main/resources/META-INF/additional-spring-configuration-metadata.json");
+		File metadata_java = new File(location, "src/main/java/META-INF/additional-spring-configuration-metadata.json");
+		
+		assertFalse(
+			metadata_rsrc.exists()
+		);
+		assertFalse(
+			metadata_java.exists()
+		);
+		try {
+	
+			Editor editor = newEditor(
+					"myapp:\n" + 
+					"  orders:\n" + 
+					"    pageSize: 10\n" +
+					"    start: 0\n"
+			);
+			Diagnostic problem = editor.assertProblems("myapp|Unknown").get(0);
+			editor.assertQuickfixes(problem, 
+					"Create metadata for `myapp.orders.page-size`",
+					"Create metadata for `myapp.orders.start`"
+			);
+	
+		} finally {
+			FileUtils.deleteQuietly(new File(location, "src/main/resources/META-INF"));
+			FileUtils.deleteQuietly(new File(location, "src/main/java/META-INF"));
+		}
+	}
+
+	
+	@Test public void testDeprecatedPropertyQuickfixSimple() throws Exception {
 		//A simple case for starters. The path edits aren't too complicated since there's
 		//just the one property in the file and only the last part of the 'path' changes.
 		//So this is a simple 'in-place' edit.
@@ -2715,12 +3249,12 @@ public class ApplicationYamlEditorTest extends AbstractPropsEditorTest {
 			);
 
 			Diagnostic problem = editor.assertProblem("old-name");
-			CompletionItem fix = editor.assertFirstQuickfix(problem, "Change to 'my.new-name'");
-			editor.apply(fix);
+			CodeAction fix = editor.assertFirstQuickfix(problem, "Replace with `my.new-name`");
+			fix.perform();
 			editor.assertText(
 					"# a comment\n"+
 					"my:\n"+
-					"  new-name: foo\n"
+					"  new-name: foo<*>\n"
 			);
 		}
 
@@ -2733,12 +3267,12 @@ public class ApplicationYamlEditorTest extends AbstractPropsEditorTest {
 			);
 
 			Diagnostic problem = editor.assertProblem("old-name");
-			CompletionItem fix = editor.assertFirstQuickfix(problem, "Change to 'my.new-name'");
-			editor.apply(fix);
+			CodeAction fix = editor.assertFirstQuickfix(problem, "Replace with `my.new-name`");
+			fix.perform();
 			editor.assertText(
 					"# a comment\n"+
 					"my:\n"+
-					"  new-name: foo\n"+
+					"  new-name: foo<*>\n"+
 					"your: stuff"
 			);
 		}
@@ -2752,18 +3286,18 @@ public class ApplicationYamlEditorTest extends AbstractPropsEditorTest {
 			);
 
 			Diagnostic problem = editor.assertProblem("old-name");
-			CompletionItem fix = editor.assertFirstQuickfix(problem, "Change to 'my.new-name'");
-			editor.apply(fix);
+			CodeAction fix = editor.assertFirstQuickfix(problem, "Replace with `my.new-name`");
+			fix.perform();
 			editor.assertText(
 					"# a comment\n"+
 					"my:\n"+
-					"  new-name: foo\n" +
+					"  new-name: foo<*>\n" +
 					"  other: bar\n"
 			);
 		}
 	}
 
-	@Ignore @Test public void testDeprecatedPropertyQuickfixMovingValue() throws Exception {
+	@Test public void testDeprecatedPropertyQuickfixMovingValue() throws Exception {
 		data("my.old-name", "java.lang.String", null, "Old and deprecated name");
 		deprecate("my.old-name", "your.new-name", null);
 
@@ -2785,15 +3319,15 @@ public class ApplicationYamlEditorTest extends AbstractPropsEditorTest {
 			);
 
 			Diagnostic problem = editor.assertProblem("pieces");
-			CompletionItem fix = editor.assertFirstQuickfix(problem, "Change to 'my.path.with.many.pieces'");
-			editor.apply(fix);
+			CodeAction fix = editor.assertFirstQuickfix(problem, "Replace with `my.path.with.many.pieces`");
+			fix.perform();
 			editor.assertText(
 					"# a comment\n"+
 					"my:\n" +
 					"  path:\n"+
 					"    with:\n"+
 					"      many:\n"+
-					"        pieces: foo"
+					"        pieces: foo<*>"
 			);
 		}
 
@@ -2810,8 +3344,8 @@ public class ApplicationYamlEditorTest extends AbstractPropsEditorTest {
 			);
 
 			Diagnostic problem = editor.assertProblem("pieces");
-			CompletionItem fix = editor.assertFirstQuickfix(problem, "Change to 'my.path.with.many.pieces'");
-			editor.apply(fix);
+			CodeAction fix = editor.assertFirstQuickfix(problem, "Replace with `my.path.with.many.pieces`");
+			fix.perform();
 			editor.assertText(
 					"# a comment\n"+
 					"my:\n" +
@@ -2823,7 +3357,7 @@ public class ApplicationYamlEditorTest extends AbstractPropsEditorTest {
 					"  path:\n"+
 					"    with:\n"+
 					"      many:\n"+
-					"        pieces: foo"
+					"        pieces: foo<*>"
 			);
 		}
 
@@ -2835,13 +3369,13 @@ public class ApplicationYamlEditorTest extends AbstractPropsEditorTest {
 			);
 
 			Diagnostic problem = editor.assertProblem("stuff");
-			CompletionItem fix = editor.assertFirstQuickfix(problem, "Change to 'my.for-sale.stuff'");
-			editor.apply(fix);
+			CodeAction fix = editor.assertFirstQuickfix(problem, "Replace with `my.for-sale.stuff`");
+			fix.perform();
 			editor.assertText(
 					"# a comment\n"+
 					"my:\n" +
 					"  for-sale:\n"+
-					"    stuff: foo"
+					"    stuff: foo<*>"
 			);
 		}
 
@@ -2853,12 +3387,12 @@ public class ApplicationYamlEditorTest extends AbstractPropsEditorTest {
 			);
 
 			Diagnostic problem = editor.assertProblem("old-name");
-			CompletionItem fix = editor.assertFirstQuickfix(problem, "Change to 'your.new-name'");
-			editor.apply(fix);
+			CodeAction fix = editor.assertFirstQuickfix(problem, "Replace with `your.new-name`");
+			fix.perform();
 			editor.assertText(
 					"# a comment\n"+
 					"your:\n"+
-					"  new-name: foo"
+					"  new-name: foo<*>"
 			);
 		}
 
@@ -2872,13 +3406,13 @@ public class ApplicationYamlEditorTest extends AbstractPropsEditorTest {
 			);
 
 			Diagnostic problem = editor.assertProblem("old-name");
-			CompletionItem fix = editor.assertFirstQuickfix(problem, "Change to 'your.new-name'");
-			editor.apply(fix);
+			CodeAction fix = editor.assertFirstQuickfix(problem, "Replace with `your.new-name`");
+			fix.perform();
 			editor.assertText(
 					"# a comment\n"+
 					"your:\n"+
 					"  goodies: nice\n"+
-					"  new-name: foo"
+					"  new-name: foo<*>"
 			);
 		}
 
@@ -2893,20 +3427,20 @@ public class ApplicationYamlEditorTest extends AbstractPropsEditorTest {
 			);
 
 			Diagnostic problem = editor.assertProblem("old-name");
-			CompletionItem fix = editor.assertFirstQuickfix(problem, "Change to 'your.new-name'");
-			editor.apply(fix);
+			CodeAction fix = editor.assertFirstQuickfix(problem, "Replace with `your.new-name`");
+			fix.perform();
 			editor.assertText(
 					"# a comment\n"+
 					"your:\n"+
 					"  goodies: nice\n"+
-					"  new-name: foo\n" +
+					"  new-name: foo<*>\n" +
 					"my:\n" +
 					"  other: stuff"
 			);
 		}
 	}
 
-	@Ignore @Test public void testDeprecatedPropertyQuickfixMovingIndentedValue() throws Exception {
+	@Test public void testDeprecatedPropertyQuickfixMovingIndentedValue() throws Exception {
 		data("my.old-name", "java.lang.String", null, "Old and deprecated name");
 		deprecate("my.old-name", "your.new-name", null); //same indent level
 
@@ -2932,8 +3466,8 @@ public class ApplicationYamlEditorTest extends AbstractPropsEditorTest {
 					"  stuff: goes here\n"
 			);
 			Diagnostic problem = editor.assertProblem("pieces");
-			CompletionItem fix = editor.assertFirstQuickfix(problem, "Change to 'short.path'");
-			editor.apply(fix);
+			CodeAction fix = editor.assertFirstQuickfix(problem, "Replace with `short.path`");
+			fix.perform();
 			editor.assertText(
 					"# a comment\n"+
 					"short:\n"+
@@ -2941,7 +3475,7 @@ public class ApplicationYamlEditorTest extends AbstractPropsEditorTest {
 					"  path: >\n" +
 					"    foo spread over\n"+
 					"    several lines\n" +
-					"    of text\n"
+					"    of text<*>\n"
 			);
 		}
 
@@ -2957,8 +3491,8 @@ public class ApplicationYamlEditorTest extends AbstractPropsEditorTest {
 					"     of text\n"
 			);
 			Diagnostic problem = editor.assertProblem("stuff");
-			CompletionItem fix = editor.assertFirstQuickfix(problem, "Change to 'my.long.path.with.many.pieces'");
-			editor.apply(fix);
+			CodeAction fix = editor.assertFirstQuickfix(problem, "Replace with `my.long.path.with.many.pieces`");
+			fix.perform();
 			editor.assertText(
 					"# a comment\n"+
 					"my:\n" +
@@ -2970,7 +3504,7 @@ public class ApplicationYamlEditorTest extends AbstractPropsEditorTest {
 					"          pieces: >\n" +
 					"            foo spread over\n"+
 					"              several lines\n" +
-					"             of text"
+					"             of text<*>"
 			);
 		}
 		{
@@ -2992,8 +3526,8 @@ public class ApplicationYamlEditorTest extends AbstractPropsEditorTest {
 					"  stuff: goes here\n"
 			);
 			Diagnostic problem = editor.assertProblem("pieces");
-			CompletionItem fix = editor.assertFirstQuickfix(problem, "Change to 'short.path'");
-			editor.apply(fix);
+			CodeAction fix = editor.assertFirstQuickfix(problem, "Replace with `short.path`");
+			fix.perform();
 			editor.assertText(
 					"# a comment\n"+
 					"short:\n"+
@@ -3004,7 +3538,7 @@ public class ApplicationYamlEditorTest extends AbstractPropsEditorTest {
 					"      #confusing\n" +
 					"  - several lines\n" +
 					"    #comments\n" +
-					"  - of text\n"
+					"  - of text<*>\n"
 			);
 		}
 	}
@@ -3185,12 +3719,42 @@ public class ApplicationYamlEditorTest extends AbstractPropsEditorTest {
 		);
 	}
 
+	@Test public void testYamlExtensionAccepted() throws Exception {
+		data("server.port", "java.lang.Integer", null, "Port of server");
+		Editor editor;
+
+		// Hovers
+		editor = harness.newEditorWithExt(LanguageId.BOOT_PROPERTIES_YAML, ".yaml",
+				"server:\n" +
+				"  port: blah"
+		);
+		editor.assertHoverContains("port", "Port of server");
+
+		//Reconcile
+		editor = harness.newEditorWithExt(LanguageId.BOOT_PROPERTIES_YAML, ".yaml",
+				"server:\n" +
+				"  porter: blah"
+		);
+		editor.assertProblems("porter|Unknown");
+
+		//Completions
+		editor = harness.newEditorWithExt(LanguageId.BOOT_PROPERTIES_YAML, ".yaml",
+				"server:\n" +
+				"  p<*>"
+		);
+
+		editor.assertCompletionLabels("port");
+
+
+
+	}
+
 	@Test public void testPropertyMapKeyCompletions() throws Exception {
 		useProject(createPredefinedMavenProject("empty-boot-1.3.0-app"));
 		assertCompletionWithLabel(
 				"logging:\n" +
 				"  level:\n" +
-				"    <*>"
+				"    roo<*>"
 				, // =>
 				"root"
 				,
@@ -3201,7 +3765,7 @@ public class ApplicationYamlEditorTest extends AbstractPropsEditorTest {
 		assertCompletionDetails(
 				"logging:\n" +
 				"  level:\n" +
-				"    <*>"
+				"    roo<*>"
 				, // =>
 				"root",
 				"String",
@@ -3575,7 +4139,52 @@ public class ApplicationYamlEditorTest extends AbstractPropsEditorTest {
 			/*NONE*/
 		);
 	}
+	
+	@Test public void definitionLinks_bug_169240253_nested() throws Exception {
+		MavenJavaProject p = createPredefinedMavenProject("boot-web-actuator-2.2.0");
+		//See: https://www.pivotaltracker.com/story/show/169240253
+		useProject(p );
+		Editor editor = newEditor(
+				"management:\n" + 
+				"  endpoints:\n" + 
+				"    web:\n" + 
+				"      exposure:\n" + 
+				"        exclude: '*'\n" +
+				"spring:\n" + 
+				"  messages:\n" + 
+				"    basename: messages/messages\n"
+		);
+		//org.springframework.boot.actuate.autoconfigure.endpoint.web.WebEndpointProperties.Exposure.setExclude(Set<String>)
+		definitionLinkAsserts.assertLinkTargets(editor, "exclude", p, editor.rangeOf("exclude"), 
+				method("org.springframework.boot.actuate.autoconfigure.endpoint.web.WebEndpointProperties$Exposure", "setExclude", "java.util.Set")
+		);
+		
+		//org.springframework.boot.autoconfigure.context.MessageSourceProperties.setBasename(String)
+		definitionLinkAsserts.assertLinkTargets(editor, "basename", p, editor.rangeOf("basename"), 
+				method("org.springframework.boot.autoconfigure.context.MessageSourceProperties", "setBasename", "java.lang.String")
+		);
+	}
 
+	@Test public void definitionLinks_bug_169240253_parent() throws Exception {
+		MavenJavaProject p = createPredefinedMavenProject("boot-web-actuator-2.2.0");
+		//See: https://www.pivotaltracker.com/story/show/169240253
+		useProject(p );
+		Editor editor = newEditor(
+				"management:\n" + 
+				"  endpoints:\n" + 
+				"    web:\n" + 
+				"      exposure:\n" + 
+				"        exclude: '*'\n" +
+				"spring:\n" + 
+				"  messages:\n" + 
+				"    basename: messages/messages\n"
+		);
+		//org.springframework.boot.actuate.autoconfigure.endpoint.web.WebEndpointProperties.getExposure()
+		definitionLinkAsserts.assertLinkTargets(editor, "exposure", p, editor.rangeOf("exposure"), 
+				method("org.springframework.boot.actuate.autoconfigure.endpoint.web.WebEndpointProperties", "getExposure")
+		);
+	}
+	
 	 @Test public void testClassReferenceInValueLink() throws Exception {
 		Editor editor;
 		MavenJavaProject project = createPredefinedMavenProject("empty-boot-1.3.0-with-mongo");
@@ -3587,7 +4196,9 @@ public class ApplicationYamlEditorTest extends AbstractPropsEditorTest {
 			"    mongodb:\n" +
 			"      field-naming-strategy: org.springframework.data.mapping.model.PropertyNameFieldNamingStrategy\n"
 		);
-		definitionLinkAsserts.assertLinkTargets(editor, "org.springframework.data.mapping.model.PropertyNameFieldNamingStrategy", project, "org.springframework.data.mapping.model.PropertyNameFieldNamingStrategy");
+		definitionLinkAsserts.assertLinkTargets(editor, "org.springframework.data.mapping.model.PropertyNameFieldNamingStrategy", project,
+				editor.rangeOf("org.springframework.data.mapping.model.PropertyNameFieldNamingStrategy", "org.springframework.data.mapping.model.PropertyNameFieldNamingStrategy"),
+				"org.springframework.data.mapping.model.PropertyNameFieldNamingStrategy");
 
 		editor = newEditor(
 			"spring:\n" +
@@ -3596,7 +4207,9 @@ public class ApplicationYamlEditorTest extends AbstractPropsEditorTest {
 			"      field-naming-strategy:\n" +
 			"        org.springframework.data.mapping.model.PropertyNameFieldNamingStrategy\n"
 		);
-		definitionLinkAsserts.assertLinkTargets(editor, "org.springframework.data.mapping.model.PropertyNameFieldNamingStrategy", project, "org.springframework.data.mapping.model.PropertyNameFieldNamingStrategy");
+		definitionLinkAsserts.assertLinkTargets(editor, "org.springframework.data.mapping.model.PropertyNameFieldNamingStrategy", project,
+				editor.rangeOf("org.springframework.data.mapping.model.PropertyNameFieldNamingStrategy", "org.springframework.data.mapping.model.PropertyNameFieldNamingStrategy"),
+				"org.springframework.data.mapping.model.PropertyNameFieldNamingStrategy");
 
 		//Linking should also work for types that aren't valid based on the constraints
 		editor = newEditor(
@@ -3606,7 +4219,7 @@ public class ApplicationYamlEditorTest extends AbstractPropsEditorTest {
 				"      field-naming-strategy: java.lang.String\n" +
 				"#more stuff"
 		);
-		definitionLinkAsserts.assertLinkTargets(editor, "java.lang.String", project, "java.lang.String");
+		definitionLinkAsserts.assertLinkTargets(editor, "java.lang.String", project, editor.rangeOf("java.lang.String", "java.lang.String"), "java.lang.String");
 	}
 
 	@Test public void test_STS_3335_reconcile_list_nested_in_Map_of_String() throws Exception {
@@ -3690,7 +4303,7 @@ public class ApplicationYamlEditorTest extends AbstractPropsEditorTest {
 		useProject(createPredefinedMavenProject("boot-1.3.3-app-with-resource-prop"));
 
 		//Check the metadata reflects the 'handle-as':
-		PropertyInfo metadata = getIndexProvider().getIndex(null).get("my.welcome.path");
+		PropertyInfo metadata = getIndexProvider().getIndex(null).getProperties().get("my.welcome.path");
 		assertEquals("org.springframework.core.io.Resource", metadata.getType());
 
 		//Check the content assist based on it works too:
@@ -3751,13 +4364,13 @@ public class ApplicationYamlEditorTest extends AbstractPropsEditorTest {
 				"my:\n" +
 				"  background: RED"
 		);
-		definitionLinkAsserts.assertLinkTargets(editor, "RED", project, field("demo.Color", "RED"));
+		definitionLinkAsserts.assertLinkTargets(editor, "RED", project, editor.rangeOf("RED", "RED"), field("demo.Color", "RED"));
 
 		editor = newEditor(
 				"my:\n" +
 				"  background: red"
 		);
-		definitionLinkAsserts.assertLinkTargets(editor, "red", project, field("demo.Color", "RED"));
+		definitionLinkAsserts.assertLinkTargets(editor, "red", project, editor.rangeOf("red", "red"), field("demo.Color", "RED"));
 	}
 
 	 @Test public void testHyperLinkEnumValueInMapKey() throws Exception {
@@ -3773,8 +4386,8 @@ public class ApplicationYamlEditorTest extends AbstractPropsEditorTest {
 				"      RED: Rood\n" +
 				"      green: Groen\n"
 		);
-		definitionLinkAsserts.assertLinkTargets(editor, "RED", project, field("demo.Color", "RED"));
-		definitionLinkAsserts.assertLinkTargets(editor, "green", project, field("demo.Color", "GREEN"));
+		definitionLinkAsserts.assertLinkTargets(editor, "RED", project, editor.rangeOf("RED", "RED"), field("demo.Color", "RED"));
+		definitionLinkAsserts.assertLinkTargets(editor, "green", project, editor.rangeOf("green", "green"), field("demo.Color", "GREEN"));
 
 		editor = newEditor(
 			"spring:\n" +
@@ -3783,6 +4396,7 @@ public class ApplicationYamlEditorTest extends AbstractPropsEditorTest {
 			"      INDENT_OUTPUT: true"
 		);
 		definitionLinkAsserts.assertLinkTargets(editor, "INDENT_OUTPUT", project,
+				editor.rangeOf("INDENT_OUTPUT", "INDENT_OUTPUT"),
 				field("com.fasterxml.jackson.databind.SerializationFeature", "INDENT_OUTPUT")
 		);
 
@@ -3793,6 +4407,7 @@ public class ApplicationYamlEditorTest extends AbstractPropsEditorTest {
 			"      indent-output: true"
 		);
 		definitionLinkAsserts.assertLinkTargets(editor, "indent-output", project,
+				editor.rangeOf("indent-output", "indent-output"),
 				field("com.fasterxml.jackson.databind.SerializationFeature", "INDENT_OUTPUT")
 		);
 	}
@@ -3917,6 +4532,28 @@ public class ApplicationYamlEditorTest extends AbstractPropsEditorTest {
 		editor.assertContextualCompletions("B<*>", "BLUE<*>");
 	}
 
+	@Test public void test_NoQuickfixForDeprecatedProperty() throws Exception {
+		//See: https://www.pivotaltracker.com/story/show/163720976
+		//Summary: if a deprecated property metadata does *not*
+		// provide a 'replace with' hint then it should not create
+		// a 'Replace with' quickfix.
+
+		data("spring.devtools.remote.debug.local-port", "java.lang.Integer",
+				8000,  "Local remote debug server port."
+		);
+		deprecate("spring.devtools.remote.debug.local-port", null, "No longer supported", Level.ERROR);
+
+		Editor editor = harness.newEditor(
+				"spring:\n" +
+				"  devtools:\n" +
+				"    remote:\n" +
+				"      debug:\n" +
+				"        local-port: 8888"
+		);
+		Diagnostic problem = editor.assertProblems("local-port|Deprecated").get(0);
+		editor.assertNoCodeAction(problem);
+		assertEquals(DiagnosticSeverity.Error, problem.getSeverity());
+	}
 
 	///////////////// cruft ////////////////////////////////////////////////////////
 

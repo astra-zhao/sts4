@@ -3,12 +3,11 @@
  * All rights reserved. This program and the accompanying materials
  * are made available under the terms of the Eclipse Public License v1.0
  * which accompanies this distribution, and is available at
- * http://www.eclipse.org/legal/epl-v10.html
+ * https://www.eclipse.org/legal/epl-v10.html
  *
  * Contributors:
  *     Pivotal, Inc. - initial API and implementation
  *******************************************************************************/
-
 package org.springframework.ide.vscode.commons.util.text;
 
 import java.util.ArrayList;
@@ -126,6 +125,19 @@ public class DocumentRegion implements CharSequence, IRegion {
 			throw new IndexOutOfBoundsException(""+offset);
 		}
 	}
+	
+	/**
+	 * Like charAt, but doesn't IndexOutOfBoundsException. Instead it
+	 * return (char)0.
+	 */
+	public char safeCharAt(int offset) {
+		try {
+			return charAt(offset);
+		} catch (IndexOutOfBoundsException e) {
+			return 0;
+		}
+	}
+
 
 	/**
 	 * Determines whether this range contains a given (absolute) offset.

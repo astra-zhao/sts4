@@ -3,7 +3,7 @@
  * All rights reserved. This program and the accompanying materials
  * are made available under the terms of the Eclipse Public License v1.0
  * which accompanies this distribution, and is available at
- * http://www.eclipse.org/legal/epl-v10.html
+ * https://www.eclipse.org/legal/epl-v10.html
  *
  * Contributors:
  *     Pivotal, Inc. - initial API and implementation
@@ -41,7 +41,6 @@ import org.springframework.ide.vscode.bosh.models.ReleaseData;
 import org.springframework.ide.vscode.bosh.models.ReleasesModel;
 import org.springframework.ide.vscode.bosh.models.StemcellData;
 import org.springframework.ide.vscode.bosh.models.StemcellsModel;
-import org.springframework.ide.vscode.commons.languageserver.util.SimpleLanguageServer;
 import org.springframework.ide.vscode.commons.util.ExternalCommand;
 import org.springframework.ide.vscode.commons.util.text.LanguageId;
 import org.springframework.ide.vscode.commons.yaml.reconcile.YamlSchemaProblems;
@@ -1587,7 +1586,8 @@ public class BoshEditorTest {
 				"- name: some-release\n"
 				,
 				"some-release"
-			)
+			),
+			editor.rangeOf("- release: some-release", "some-release")
 		);
 	}
 
@@ -1612,7 +1612,8 @@ public class BoshEditorTest {
 
 		editor.assertGotoDefinition(
 			editor.positionOf("stemcell: windoze", "windoze"),
-			editor.rangeOf("- alias: windoze", "windoze")
+			editor.rangeOf("- alias: windoze", "windoze"),
+			editor.rangeOf("stemcell: windoze", "windoze")
 		);
 	}
 
@@ -2278,7 +2279,9 @@ public class BoshEditorTest {
 		editor.ignoreProblem(YamlSchemaProblems.MISSING_PROPERTY);
 		editor.assertProblems(
 				"dns|Only one of 'dns' and 'subnets' should be defined",
-				"cloud_properties|Only one of 'cloud_properties' and 'subnets' should be defined"
+				"cloud_properties|Only one of 'cloud_properties' and 'subnets' should be defined",
+				"subnets|Only one of 'cloud_properties' and 'subnets' should be defined",
+				"subnets|Only one of 'dns' and 'subnets' should be defined"
 		);
 	}
 

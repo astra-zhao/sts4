@@ -3,7 +3,7 @@
  * All rights reserved. This program and the accompanying materials
  * are made available under the terms of the Eclipse Public License v1.0
  * which accompanies this distribution, and is available at
- * http://www.eclipse.org/legal/epl-v10.html
+ * https://www.eclipse.org/legal/epl-v10.html
  *
  * Contributors:
  *     Pivotal, Inc. - initial API and implementation
@@ -142,6 +142,28 @@ public class NodeUtil {
 
 	public static DocumentRegion region(IDocument doc, Node node) {
 		return new DocumentRegion(doc, node.getStartMark().getIndex(), node.getEndMark().getIndex());
+	}
+
+	public static DocumentRegion region(IDocument doc, NodeTuple tup) {
+		return new DocumentRegion(doc, tup.getKeyNode().getStartMark().getIndex(), tup.getValueNode().getEndMark().getIndex());
+	}
+
+	/**
+	 * Detects whether a given map key-value pair is anchored. I.e. corresponds to
+	 * a bit of yaml like this example:
+	 *
+	 * <pre>
+	 * some-key: &some-anchor
+	 *   blah: blah
+	 *   more: blah
+	 * </pre>
+	 */
+	public static boolean isAnchored(NodeTuple entry) {
+		if (entry!=null) {
+			Node v = entry.getValueNode();
+			return v!=null && v.getAnchor()!=null;
+		}
+		return false;
 	}
 
 }

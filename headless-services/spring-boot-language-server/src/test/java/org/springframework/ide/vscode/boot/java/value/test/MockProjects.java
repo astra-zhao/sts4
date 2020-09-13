@@ -1,9 +1,9 @@
 /*******************************************************************************
- * Copyright (c) 2018 Pivotal, Inc.
+ * Copyright (c) 2018, 2020 Pivotal, Inc.
  * All rights reserved. This program and the accompanying materials
  * are made available under the terms of the Eclipse Public License v1.0
  * which accompanies this distribution, and is available at
- * http://www.eclipse.org/legal/epl-v10.html
+ * https://www.eclipse.org/legal/epl-v10.html
  *
  * Contributors:
  *     Pivotal, Inc. - initial API and implementation
@@ -34,8 +34,8 @@ import org.springframework.ide.vscode.commons.java.IJavaProject;
 import org.springframework.ide.vscode.commons.languageserver.java.JavaProjectFinder;
 import org.springframework.ide.vscode.commons.languageserver.java.ProjectObserver;
 import org.springframework.ide.vscode.commons.languageserver.java.ProjectObserver.Listener;
-import org.springframework.ide.vscode.commons.languageserver.jdt.ls.Classpath;
-import org.springframework.ide.vscode.commons.languageserver.jdt.ls.Classpath.CPE;
+import org.springframework.ide.vscode.commons.protocol.java.Classpath;
+import org.springframework.ide.vscode.commons.protocol.java.Classpath.CPE;
 import org.springframework.ide.vscode.commons.util.FileObserver;
 import org.springframework.ide.vscode.commons.util.IOUtil;
 
@@ -63,6 +63,11 @@ public class MockProjects {
 				return Optional.empty();
 			}
 		}
+
+		@Override
+		public Collection<? extends IJavaProject> all() {
+			return projectsByName.values();
+		}
 	};
 
 	public MockFileObserver fileObserver = new MockFileObserver();
@@ -85,7 +90,9 @@ public class MockProjects {
 			public Collection<CPE> getClasspathEntries() throws Exception {
 				List<CPE> cp = new ArrayList<>();
 				for (File sf : sourceFolders) {
-					cp.add(new CPE(Classpath.ENTRY_KIND_SOURCE, sf.getAbsolutePath()).setOutputFolder(defaultOutputFolder.getAbsolutePath()));
+					CPE cpe = new CPE(Classpath.ENTRY_KIND_SOURCE, sf.getAbsolutePath());
+					cpe.setOutputFolder(defaultOutputFolder.getAbsolutePath());
+					cp.add(cpe);
 				}
 				return cp;
 			}
@@ -197,13 +204,16 @@ public class MockProjects {
 	}
 
 	private static class FileListener {
+		
 		final PathMatcher matcher;
-		final Consumer<String> handler;
-		FileListener(List<String> globPatterns, Consumer<String> listener) {
+		final Consumer<String[]> handler;
+		
+		FileListener(List<String> globPatterns, Consumer<String[]> listener) {
 			super();
 			this.matcher = buildPathMatcher(globPatterns);
 			this.handler = listener;
 		}
+		
 		private PathMatcher buildPathMatcher(List<String> globPatterns) {
 			if (globPatterns.size()==0) {
 				return path -> true;
@@ -234,7 +244,7 @@ public class MockProjects {
 		final Map<String,FileListener> change_listeners = new HashMap<>();
 		final Map<String,FileListener> delete_listeners = new HashMap<>();
 
-		private String add(Map<String, FileListener> listeners, List<String> globPatterns, Consumer<String> handler) {
+		private String add(Map<String, FileListener> listeners, List<String> globPatterns, Consumer<String[]> handler) {
 			String id = ""+idGen.incrementAndGet();
 			synchronized (listeners) {
 				listeners.put(id, new FileListener(globPatterns, handler));
@@ -255,25 +265,25 @@ public class MockProjects {
 			synchronized (listeners) {
 				for (FileListener l : listeners.values()) {
 					if (l.matcher.matches(path)) {
-						l.handler.accept(target.toURI().toString());
+						l.handler.accept(new String[] {target.toURI().toString()});
 					}
 				}
 			}
 		}
 
 		@Override
-		public String onFileCreated(List<String> globPattern, Consumer<String> handler) {
+		public String onFilesCreated(List<String> globPattern, Consumer<String[]> handler) {
 			return add(create_listeners, globPattern, handler);
 		}
 
 
 		@Override
-		public String onFileChanged(List<String> globPattern, Consumer<String> handler) {
+		public String onFilesChanged(List<String> globPattern, Consumer<String[]> handler) {
 			return add(change_listeners, globPattern, handler);
 		}
 
 		@Override
-		public String onFileDeleted(List<String> globPattern, Consumer<String> handler) {
+		public String onFilesDeleted(List<String> globPattern, Consumer<String[]> handler) {
 			return add(delete_listeners, globPattern, handler);
 		}
 

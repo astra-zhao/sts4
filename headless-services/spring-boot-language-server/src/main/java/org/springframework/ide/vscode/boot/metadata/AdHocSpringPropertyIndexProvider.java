@@ -1,9 +1,9 @@
 /*******************************************************************************
- * Copyright (c) 2018 Pivotal, Inc.
+ * Copyright (c) 2018, 2020 Pivotal, Inc.
  * All rights reserved. This program and the accompanying materials
  * are made available under the terms of the Eclipse Public License v1.0
  * which accompanies this distribution, and is available at
- * http://www.eclipse.org/legal/epl-v10.html
+ * https://www.eclipse.org/legal/epl-v10.html
  *
  * Contributors:
  *     Pivotal, Inc. - initial API and implementation
@@ -15,7 +15,9 @@ import java.io.FileInputStream;
 import java.io.InputStream;
 import java.io.InputStreamReader;
 import java.io.Reader;
+import java.util.HashSet;
 import java.util.Properties;
+import java.util.Set;
 import java.util.concurrent.ExecutionException;
 
 import org.eclipse.lsp4j.TextDocumentIdentifier;
@@ -63,11 +65,20 @@ public class AdHocSpringPropertyIndexProvider implements ProjectBasedPropertyInd
 					"**/application.properties",
 					"**/application.yml"
 			), changed -> {
-				log.info("File changed: "+changed);
-				projectFinder.find(new TextDocumentIdentifier(changed)).ifPresent(project -> {
-					log.info("=> Project changed: "+project.getElementName());
+				log.debug("Files changed: {}", (Object[])changed);
+				
+				Set<IJavaProject> affectedProjects = new HashSet<>();
+				for (String docURI : changed) {
+					projectFinder.find(new TextDocumentIdentifier(docURI)).ifPresent(project -> {
+						affectedProjects.add(project);
+					});
+				}
+				
+				for (IJavaProject project : affectedProjects) {
+					log.debug("=> Project changed: {}", project.getElementName());
 					indexes.invalidate(project);
-				});
+				}
+				
 			});
 		}
 		if (documents!=null) {
@@ -96,7 +107,7 @@ public class AdHocSpringPropertyIndexProvider implements ProjectBasedPropertyInd
 				log.error("", e);
 			}
 		}
-		return SpringPropertyIndex.EMPTY_INDEX;
+		return SpringPropertyIndex.EMPTY_INDEX.getProperties();
 	}
 
 	private void processFile(Function<File, Properties> parserFunction, File file, SimplePropertyIndex index) {

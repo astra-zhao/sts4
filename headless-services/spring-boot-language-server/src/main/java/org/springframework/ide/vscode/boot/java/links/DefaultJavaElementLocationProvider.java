@@ -3,7 +3,7 @@
  * All rights reserved. This program and the accompanying materials
  * are made available under the terms of the Eclipse Public License v1.0
  * which accompanies this distribution, and is available at
- * http://www.eclipse.org/legal/epl-v10.html
+ * https://www.eclipse.org/legal/epl-v10.html
  *
  * Contributors:
  *     Pivotal, Inc. - initial API and implementation
@@ -60,6 +60,9 @@ public class DefaultJavaElementLocationProvider implements JavaElementLocationPr
 						URI uri = url.get().toURI();
 						Range r = cuCache.withCompilationUnit(project, uri, (cu) -> {
 							AtomicReference<Range> range = new AtomicReference<>(null);
+							if (cu == null) {
+								return new Range(new Position(0, 0), new Position(0, 0));
+							}
 							cu.accept(new ASTVisitor() {
 
 								private Range nameRange(SimpleName nameNode) {

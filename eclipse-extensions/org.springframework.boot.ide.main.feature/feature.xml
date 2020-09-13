@@ -2,7 +2,7 @@
 <feature
 	id="org.springframework.boot.ide.main.feature"
 	label="Spring Tool Suite 4 Main Feature"
-	version="4.0.2.qualifier"
+	version="4.8.0.qualifier"
 	provider-name="Pivotal, Inc.">
 
     <description>
@@ -16,6 +16,10 @@
     <license url="%licenseUrl">
        %license
     </license>
+
+    <requires>
+       <import feature="org.springframework.ide.eclipse.xml.namespaces.feature" version="3.9.9" match="greaterOrEqual"/>
+    </requires>
 
     <plugin
           id="org.springframework.ide.eclipse.boot"
@@ -74,14 +78,14 @@
           unpack="false"/>
          
     <plugin
-          id="org.springframework.ide.eclipse.buildship20"
+          id="org.springframework.ide.eclipse.buildship30"
           download-size="0"
           install-size="0"
           version="0.0.0"
           unpack="false"/>
 
     <plugin
-          id="org.springframework.ide.eclipse.buildship30"
+          id="org.springframework.ide.eclipse.maven.pom"
           download-size="0"
           install-size="0"
           version="0.0.0"

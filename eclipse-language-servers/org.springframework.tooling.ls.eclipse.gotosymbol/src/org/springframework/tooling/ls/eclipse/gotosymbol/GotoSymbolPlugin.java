@@ -3,7 +3,7 @@
  * All rights reserved. This program and the accompanying materials
  * are made available under the terms of the Eclipse Public License v1.0
  * which accompanies this distribution, and is available at
- * http://www.eclipse.org/legal/epl-v10.html
+ * https://www.eclipse.org/legal/epl-v10.html
  *
  * Contributors:
  *     Pivotal, Inc. - initial API and implementation
@@ -15,6 +15,8 @@ import org.osgi.framework.BundleContext;
 
 public class GotoSymbolPlugin extends AbstractUIPlugin {
 
+	public static final String ID = "org.springframework.tooling.ls.eclipse.gotosymbol";
+	
 	private static GotoSymbolPlugin instance;
 
 	public GotoSymbolPlugin() {

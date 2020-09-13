@@ -1,9 +1,9 @@
 /*******************************************************************************
- * Copyright (c) 2017, 2018 Pivotal, Inc.
+ * Copyright (c) 2017, 2020 Pivotal, Inc.
  * All rights reserved. This program and the accompanying materials
  * are made available under the terms of the Eclipse Public License v1.0
  * which accompanies this distribution, and is available at
- * http://www.eclipse.org/legal/epl-v10.html
+ * https://www.eclipse.org/legal/epl-v10.html
  *
  * Contributors:
  *     Pivotal, Inc. - initial API and implementation
@@ -34,10 +34,11 @@ import org.springframework.ide.vscode.boot.bootiful.AdHocPropertyHarnessTestConf
 import org.springframework.ide.vscode.boot.bootiful.BootLanguageServerTest;
 import org.springframework.ide.vscode.boot.editor.harness.PropertyIndexHarness;
 import org.springframework.ide.vscode.boot.java.BootJavaLanguageServerComponents;
-import org.springframework.ide.vscode.boot.java.handlers.RunningAppProvider;
 import org.springframework.ide.vscode.boot.java.links.SourceLinkFactory;
 import org.springframework.ide.vscode.boot.java.links.SourceLinks;
 import org.springframework.ide.vscode.boot.java.utils.CompilationUnitCache;
+import org.springframework.ide.vscode.boot.java.utils.SymbolCache;
+import org.springframework.ide.vscode.boot.java.utils.SymbolCacheVoid;
 import org.springframework.ide.vscode.boot.metadata.ValueProviderRegistry;
 import org.springframework.ide.vscode.commons.languageserver.java.JavaProjectFinder;
 import org.springframework.ide.vscode.commons.languageserver.util.SimpleLanguageServer;
@@ -57,6 +58,7 @@ import org.springframework.test.context.junit4.SpringRunner;
  */
 @RunWith(SpringRunner.class)
 @BootLanguageServerTest
+@Import({AdHocPropertyHarnessTestConf.class, CompilationUnitCacheTest.TestConf.class})
 public class CompilationUnitCacheTest {
 
 	ProjectsHarness projects = ProjectsHarness.INSTANCE;
@@ -70,8 +72,11 @@ public class CompilationUnitCacheTest {
 	@Autowired
 	private MockProjectObserver projectObserver;
 
-	@Import(AdHocPropertyHarnessTestConf.class)
 	@Configuration static class TestConf {
+
+		@Bean SymbolCache symbolCache() {
+			return new SymbolCacheVoid();
+		}
 
 		@Bean PropertyIndexHarness indexHarness(ValueProviderRegistry valueProviders) {
 			return new PropertyIndexHarness(valueProviders);
@@ -90,14 +95,12 @@ public class CompilationUnitCacheTest {
 		}
 
 		@Bean BootLanguageServerParams serverParams(SimpleLanguageServer server, MockProjectObserver projectObserver, ValueProviderRegistry valueProviders, PropertyIndexHarness indexHarness) {
-			BootLanguageServerParams testDefaults = BootLanguageServerParams.createTestDefault(server, valueProviders);
+			BootLanguageServerParams testDefaults = BootLanguageServerHarness.createTestDefault(server, valueProviders);
 			return new BootLanguageServerParams(
 					indexHarness.getProjectFinder(),
 					projectObserver,
 					indexHarness.getIndexProvider(),
-					testDefaults.typeUtilProvider,
-					RunningAppProvider.NULL,
-					null
+					testDefaults.typeUtilProvider
 			);
 		}
 
@@ -112,7 +115,7 @@ public class CompilationUnitCacheTest {
 		harness.useProject(ProjectsHarness.dummyProject());
 		harness.intialize(null);
 
-		TextDocument doc = new TextDocument(harness.createTempUri(), LanguageId.JAVA, 0, "package my.package\n" +
+		TextDocument doc = new TextDocument(harness.createTempUri(null), LanguageId.JAVA, 0, "package my.package\n" +
 				"\n" +
 				"public class SomeClass {\n" +
 				"\n" +
@@ -128,7 +131,7 @@ public class CompilationUnitCacheTest {
 	public void cu_not_generated_without_project() throws Exception {
 		harness.intialize(null);
 
-		TextDocument doc = new TextDocument(harness.createTempUri(), LanguageId.JAVA, 0, "package my.package\n" +
+		TextDocument doc = new TextDocument(harness.createTempUri(null), LanguageId.JAVA, 0, "package my.package\n" +
 				"\n" +
 				"public class SomeClass {\n" +
 				"\n" +
@@ -147,7 +150,7 @@ public class CompilationUnitCacheTest {
 		harness.useProject(ProjectsHarness.dummyProject());
 		harness.intialize(null);
 
-		TextDocument doc = new TextDocument(harness.createTempUri(), LanguageId.JAVA, 0, "package my.package\n" +
+		TextDocument doc = new TextDocument(harness.createTempUri(null), LanguageId.JAVA, 0, "package my.package\n" +
 				"\n" +
 				"public class SomeClass {\n" +
 				"\n" +
@@ -171,7 +174,7 @@ public class CompilationUnitCacheTest {
 		harness.useProject(ProjectsHarness.dummyProject());
 		harness.intialize(null);
 
-		TextDocument doc = new TextDocument(harness.createTempUri(), LanguageId.JAVA, 0, "package my.package\n" +
+		TextDocument doc = new TextDocument(harness.createTempUri(null), LanguageId.JAVA, 0, "package my.package\n" +
 				"\n" +
 				"public class SomeClass {\n" +
 				"\n" +

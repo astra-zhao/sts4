@@ -24,6 +24,10 @@
 
 	<category-def name="deps" label="Dependencies"/>
 
+	<feature id="org.eclipse.mylyn.wikitext_feature">
+		<category name="deps"/>
+	</feature>
+
 	<bundle id="org.springframework.tooling.ls.eclipse.commons">
 		<category name="deps"/>
 	</bundle>
@@ -52,12 +56,16 @@
 		<category name="deps"/>
 	</bundle>
 
-	<feature id="tm-feature">
+	<feature id="org.eclipse.tm4e.feature">
 		<category name="deps"/>
 	</feature>
 
 	<bundle id="org.eclipse.lsp4e">
 		<category name="deps"/>
+	</bundle>
+
+	<bundle id="org.eclipse.lsp4e.jdt">
+		<category name="Uncategorized"/>
 	</bundle>
 
 	<bundle id="org.eclipse.lsp4j">
@@ -77,6 +85,10 @@
 	</bundle>
 
 	<bundle id="org.joni">
+		<category name="deps"/>
+	</bundle>
+
+	<bundle id="org.apache.commons.lang3">
 		<category name="deps"/>
 	</bundle>
 

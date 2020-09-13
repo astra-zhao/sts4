@@ -1,9 +1,9 @@
 /*******************************************************************************
- * Copyright (c) 2016-2017 Pivotal, Inc.
+ * Copyright (c) 2016, 2019 Pivotal, Inc.
  * All rights reserved. This program and the accompanying materials
  * are made available under the terms of the Eclipse Public License v1.0
  * which accompanies this distribution, and is available at
- * http://www.eclipse.org/legal/epl-v10.html
+ * https://www.eclipse.org/legal/epl-v10.html
  *
  * Contributors:
  *     Pivotal, Inc. - initial API and implementation
@@ -26,6 +26,7 @@ import java.util.concurrent.Executors;
 import java.util.concurrent.Future;
 import java.util.function.Function;
 
+import org.apache.commons.lang3.StringUtils;
 import org.eclipse.lsp4j.jsonrpc.Launcher;
 import org.eclipse.lsp4j.jsonrpc.MessageConsumer;
 import org.eclipse.lsp4j.services.LanguageClient;
@@ -36,7 +37,7 @@ import org.slf4j.LoggerFactory;
 import org.springframework.boot.CommandLineRunner;
 import org.springframework.ide.vscode.commons.languageserver.config.LanguageServerProperties;
 import org.springframework.ide.vscode.commons.languageserver.util.SimpleLanguageServer;
-import org.springframework.ide.vscode.commons.util.Log;
+import org.springframework.ide.vscode.commons.protocol.STS4LanguageClient;
 
 /**
  * A CommandLineRunner that launches a language server. This meant to be used as a Spring bean
@@ -51,6 +52,7 @@ public class LanguageServerRunner implements CommandLineRunner {
 
 	@Override
 	public void run(String... args) throws Exception {
+		log.info("java.home = {}", System.getProperty("java.home"));
 		//TODO: feels a bit wasteful to have thread dedicated to just waiting for the server to stop.
 		//  Not sure how we can really avoid this though. Lsp4j is providing
 		//  lots of api that returns Futures which the only way to deal with them is blocking threads calling
@@ -74,18 +76,15 @@ public class LanguageServerRunner implements CommandLineRunner {
 	public static final String SYSPROP_LANGUAGESERVER_NAME = "sts4.languageserver.name";
 
 	private LanguageServerProperties properties;
-	private final String name;
 	private final SimpleLanguageServer languageServer;
 
-	public LanguageServerRunner(String name, LanguageServerProperties properties, SimpleLanguageServer languageServer) {
+	public LanguageServerRunner(LanguageServerProperties properties, SimpleLanguageServer languageServer) {
 		super();
-		this.name = name;
 		this.properties = properties;
 		this.languageServer = languageServer;
 	}
 
 	public void start() throws Exception {
-		System.setProperty(SYSPROP_LANGUAGESERVER_NAME, name); //makes it easy to recognize language server processes.
 		LanguageServerRunner app = this;
 		log.info("Server ready to start after {} ms", ManagementFactory.getRuntimeMXBean().getUptime());
 		if (properties.isStandalone()) {
@@ -111,34 +110,34 @@ public class LanguageServerRunner implements CommandLineRunner {
 				try {
 					in.close();
 				} catch (IOException e) {
-					Log.log(e);
+					log.error("", e);
 				}
 			}
 			if (out != null) {
 				try {
 					out.close();
 				} catch (IOException e) {
-					Log.log(e);
+					log.error("", e);
 				}
 			}
 			if (socket != null) {
 				try {
 					socket.close();
 				} catch (IOException e) {
-					Log.log(e);
+					log.error("", e);
 				}
 			}
 		}
 	}
 
 	private void startAsClient() throws IOException {
-		Log.info("Starting LS");
+		log.info("Starting LS as client");
 		Connection connection = null;
 		try {
 			connection = connectToNode();
 			runAsync(connection).get();
 		} catch (Throwable t) {
-			Log.log(t);
+			log.error("", t);
 			System.exit(1);
 		} finally {
 			if (connection != null) {
@@ -163,9 +162,27 @@ public class LanguageServerRunner implements CommandLineRunner {
 		int serverPort = properties.getStandalonePort();
 		log.info("Starting LS as standlone server port = {}", serverPort);
 
-		Function<MessageConsumer, MessageConsumer> wrapper = consumer -> {
-			MessageConsumer result = consumer;
-			return result;
+//		Function<MessageConsumer, MessageConsumer> wrapper = consumer -> {
+//			MessageConsumer result = consumer;
+//			return result;
+//		};
+		
+		Function<MessageConsumer, MessageConsumer> wrapper = (MessageConsumer consumer) -> {
+			return (msg) -> {
+				try {
+//					long beforeConsumingMessage = System.currentTimeMillis();
+					
+					consumer.consume(msg);
+					
+//					long afterConsumingMessage = System.currentTimeMillis();
+//					String shortMessage = StringUtils.left(msg.toString(), 140);
+//					log.info("working on message took " + (afterConsumingMessage - beforeConsumingMessage) + "ms - message content: " + shortMessage);
+
+				} catch (UnsupportedOperationException e) {
+					//log a warning and ignore. We are getting some messages from vsCode the server doesn't know about
+					log.warn("Unsupported message was ignored!", e);
+				}
+			};
 		};
 
 		Launcher<STS4LanguageClient> launcher = createSocketLauncher(languageServer, STS4LanguageClient.class,
@@ -204,14 +221,14 @@ public class LanguageServerRunner implements CommandLineRunner {
 			InputStream in = socket.getInputStream();
 			OutputStream out = socket.getOutputStream();
 
-			Log.info("Connected to parent using socket on port " + port);
+			log.info("Connected to parent using socket on port {}", port);
 			return new Connection(in, out, socket);
 		}
 		else {
 			InputStream in = System.in;
 			PrintStream out = System.out;
 
-			Log.info("Connected to parent using stdio");
+			log.info("Connected to parent using stdio");
 
 			return new Connection(in, out, null);
 		}
@@ -223,7 +240,14 @@ public class LanguageServerRunner implements CommandLineRunner {
 		Function<MessageConsumer, MessageConsumer> wrapper = (MessageConsumer consumer) -> {
 			return (msg) -> {
 				try {
+//					long beforeConsumingMessage = System.currentTimeMillis();
+					
 					consumer.consume(msg);
+					
+//					long afterConsumingMessage = System.currentTimeMillis();
+//					String shortMessage = StringUtils.left(msg.toString(), 140);
+//					log.info("working on message took " + (afterConsumingMessage - beforeConsumingMessage) + "ms - message content: " + shortMessage);
+
 				} catch (UnsupportedOperationException e) {
 					//log a warning and ignore. We are getting some messages from vsCode the server doesn't know about
 					log.warn("Unsupported message was ignored!", e);

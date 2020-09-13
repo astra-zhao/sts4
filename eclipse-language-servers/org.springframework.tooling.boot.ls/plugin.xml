@@ -10,85 +10,130 @@
             clientImpl="org.springframework.tooling.ls.eclipse.commons.STS4LanguageClientImpl"
             label="Spring Boot Language Server">
       </server>
+
       <contentTypeMapping
             contentType="org.eclipse.jdt.core.javaSource"
             id="org.eclipse.languageserver.languages.springboot">
       </contentTypeMapping>
+
       <contentTypeMapping
             contentType="org.springframework.boot.ide.properties.application.properties"
             id="org.eclipse.languageserver.languages.springboot"
             languageId="spring-boot-properties">
       </contentTypeMapping>
+
       <contentTypeMapping
             contentType="org.springframework.boot.ide.properties.application.yml"
             id="org.eclipse.languageserver.languages.springboot"
             languageId="spring-boot-properties-yaml">
       </contentTypeMapping>
+
+      <contentTypeMapping
+            contentType="org.springframework.boot.ide.xmlconfig"
+            id="org.eclipse.languageserver.languages.springboot">
+      </contentTypeMapping>
+
    </extension>
 
    <extension
          point="org.eclipse.core.contenttype.contentTypes">
+
+<!--
+      WARNING! 
+      
+      TLDR; Always put 
+         base-type="org.eclipse.core.runtime.text" 
+      in *every* content type definiton.
+      
+      Longer explanation:
+      
+      Do not use  
+      base-type="org.eclipse.jdt.core.javaProperties"
+      this causes reconciling of *any* properties file
+      as if it was a boot properties file.
+      
+      Similarly
+      base-type="org.eclipse.core.runtime.xml" 
+      causes reconciling of *any* XML file
+      as if it was a Spring xml config file.
+      
+      Also to avoid some suspected bug/weirdness in Lsp4e
+      which I do not really understand, a base-type must allways 
+      be added. Therefore the only possible choice 
+      that makes everything work is
+      "org.eclipse.core.runtime.text".
+      
+      See: https://github.com/spring-projects/sts4/issues/320
+  -->
       <content-type
+            base-type="org.eclipse.core.runtime.text"
             default-charset="ISO-8859-1"
+            file-names="application.properties,application-dev.properties"
+            file-patterns="application-*.properties"
             id="org.springframework.boot.ide.properties.application.properties"
             name="Spring Properties File"
             priority="high">
       </content-type>
-      <file-association
-            content-type="org.springframework.boot.ide.properties.application.properties"
-            file-names="application.properties,application-dev.properties">
-      </file-association>
-   </extension>
-   
-   <extension
-         point="org.eclipse.core.contenttype.contentTypes">
+
       <content-type
+            base-type="org.eclipse.core.runtime.text"
             default-charset="UTF-8"
+            file-names="application.yml,bootstrap.yml,application-dev.yml,application.yaml,bootstrap.yaml,application-dev.yaml"
+            file-patterns="application-*.yml,application-*.yaml"
             id="org.springframework.boot.ide.properties.application.yml"
             name="Spring Yaml Properties File"
             priority="high">
       </content-type>
+
+      <content-type
+            base-type="org.eclipse.core.runtime.xml"
+            default-charset="UTF-8"
+            id="org.springframework.boot.ide.xmlconfig"
+            name="Spring XML Config File"
+            priority="normal">
+            <describer class="org.springframework.tooling.boot.ls.xml.XMLRootElementContentDescriber2">
+                  <parameter name="element" value="beans"/>
+            </describer>
+      </content-type>
+
+      <file-association
+            content-type="org.springframework.boot.ide.properties.application.properties"
+            file-names="application.properties,application-dev.properties"
+            file-patterns="application-*.properties">
+      </file-association>
+
       <file-association
             content-type="org.springframework.boot.ide.properties.application.yml"
-            file-names="application.yml,bootstrap.yml,application-dev.yml">
+            file-names="application.yml,bootstrap.yml,application-dev.yml,application.yaml,bootstrap.yaml,application-dev.yaml"
+            file-patterns="application-*.yml,application-*.yaml">
       </file-association>
-   </extension>
 
-   <extension
-         id="springbootjava-completion-computer"
-         point="org.eclipse.jdt.ui.javaCompletionProposalComputer">
-      <javaCompletionProposalComputer
-            activate="true"
-            categoryId="org.eclipse.jdt.ui.defaultProposalCategory"
-            class="org.springframework.tooling.boot.ls.jdt.SpringBootJavaCompletionProposalComputer"
-            needsSortingAfterFiltering="false">
-      </javaCompletionProposalComputer>
-   </extension>
-   
-   <extension
-         id="springbootjava-hover-provider"
-         point="org.eclipse.jdt.ui.javaEditorTextHovers">
-      <hover
-            activate="true"
-            class="org.springframework.tooling.boot.ls.jdt.SpringBootJavaHoverProvider"
-            id="org.springframework.boot.ide.java.servers.hoverprovider">
-      </hover>
-   </extension>
-   
-   <extension
-         point="org.eclipse.core.filebuffers.documentSetup">
-      <participant
-            class="org.eclipse.lsp4e.ConnectDocumentToLanguageServerSetupParticipant"
-            contentTypeId="org.eclipse.jdt.core.javaSource">
-      </participant>
    </extension>
    
    <extension
          point="org.eclipse.ui.preferencePages">
       <page
-            category="org.springframework.tooling.ls.eclipse.commons.console.preferences"
-            class="org.springframework.tooling.boot.ls.BootLanguageServerPreferencesPage"
+            category="org.springframework.tooling.boot.java.ls.preferences"
+            class="org.springframework.tooling.boot.ls.prefs.RemoteAppsPrefsPage"
+            id="org.springframework.tooling.boot.ls.prefs.RemoteAppsPrefsPage"
+            name="Remote Boot Apps">
+      </page>
+      <page
+            category="org.springframework.tooling.boot.ls.preferences"
+            class="org.springframework.tooling.boot.ls.BootJavaPreferencesPage"
             id="org.springframework.tooling.boot.java.ls.preferences"
+            name="Spring Boot Java">
+      </page>
+      <page
+            category="org.springframework.tooling.boot.ls.preferences"
+            class="org.springframework.tooling.boot.ls.XmlConfigPreferencePage"
+            id="org.springframework.tooling.boot.xml.ls.preferences"
+            name="Spring XML Config">
+      </page>
+      <page
+            category="org.springframework.tooling.ls.eclipse.commons.console.preferences"
+            class="org.springframework.tooling.boot.ls.SpringBootLanguageServerPreferencePage"
+            id="org.springframework.tooling.boot.ls.preferences"
             name="Spring Boot Language Server">
       </page>
    </extension>
@@ -102,14 +147,6 @@
    
    <extension
          point="org.eclipse.ui.handlers">
-      <handler
-            class="org.springframework.tooling.boot.ls.commands.OpenJavaElementInEditor"
-            commandId="org.springframework.tooling.boot.ls.OpenJavaElement">
-      </handler>
-      <handler
-            class="org.springframework.tooling.boot.ls.commands.OpenResourceInEditor"
-            commandId="org.springframework.tooling.boot.ls.OpenResourceInEditor">
-      </handler>
       <handler
             class="org.springframework.tooling.boot.ls.commands.ToggleComment"
             commandId="org.springframework.tooling.boot.ls.ToggleComment">
@@ -131,29 +168,6 @@
             id="org.springframework.ide.eclipse.commands"
             name="Spring Generic Text Editor">
       </category>
-      <command
-            id="org.springframework.tooling.boot.ls.OpenJavaElement"
-            name="Open Java Element in Editor">
-         <commandParameter
-               id="bindingKey"
-               name="bindingKey"
-               optional="false">
-         </commandParameter>
-         <commandParameter
-               id="projectName"
-               name="projectName"
-               optional="false">
-         </commandParameter>
-      </command>
-      <command
-            id="org.springframework.tooling.boot.ls.OpenResourceInEditor"
-            name="Open File in Editor">
-         <commandParameter
-               id="path"
-               name="path"
-               optional="false">
-         </commandParameter>
-      </command>
       <command
             id="org.springframework.tooling.boot.ls.ToggleComment"
             categoryId="org.springframework.ide.eclipse.commands"
@@ -230,16 +244,6 @@
       </editor>
    </extension>
 
-<!--
-   <extension
-         point="org.eclipse.ui.editors">
-      <editorContentTypeBinding
-            contentTypeId="org.springframework.boot.ide.properties.application.yml"
-            editorId="org.eclipse.ui.genericeditor.GenericEditor">
-      </editorContentTypeBinding>
-   </extension>
--->
-
    <extension
          point="org.eclipse.ui.genericeditor.presentationReconcilers">
       <presentationReconciler
@@ -279,6 +283,63 @@
             scopeName="source.java-properties">
       </scopeNameContentTypeBinding>
    </extension>
+   
+   
+   <extension
+      id="springxml-completion-computer"
+      point="org.eclipse.wst.sse.ui.completionProposal">         
 
+      <proposalCategory 
+            id="org.springframework.boot.ide.xmlconfig.contentassist"
+            name="Spring XML Content Assist">
+      </proposalCategory>
+
+      <proposalComputer
+            activate="true"
+            categoryId="org.springframework.boot.ide.xmlconfig.contentassist"
+            class="org.springframework.tooling.boot.ls.xml.XMLContentAssistProposalComputer"
+            id="org.springframework.boot.ide.xmlconfig.contentassist.proposalcomputer">
+         <contentType id="org.springframework.boot.ide.xmlconfig"/>
+      </proposalComputer>
+
+   </extension>
+
+   <!-- what is this for? Commented it out but everything seems to work
+   <extension
+         point="org.eclipse.core.filebuffers.documentSetup">
+      <participant
+            class="org.eclipse.lsp4e.ConnectDocumentToLanguageServerSetupParticipant"
+            contentTypeId="org.springframework.boot.ide.properties.application.properties">
+      </participant>
+   </extension>
+   <extension
+         point="org.eclipse.core.filebuffers.documentSetup">
+      <participant
+            class="org.eclipse.lsp4e.ConnectDocumentToLanguageServerSetupParticipant"
+            contentTypeId="org.springframework.boot.ide.properties.application.yml">
+      </participant>
+   </extension>
+   <extension
+         point="org.eclipse.core.filebuffers.documentSetup">
+      <participant
+            class="org.eclipse.lsp4e.ConnectDocumentToLanguageServerSetupParticipant"
+            contentTypeId="org.springframework.boot.ide.xmlconfig">
+      </participant>
+   </extension>
+   -->
+
+   <extension
+         point="org.eclipse.ui.quickAccess">
+      <computer
+            class="org.springframework.tooling.boot.ls.commands.LiveProcessCommandsQuickAccessProvider"
+            name="Spring - Live Process Information"
+            requiresUIAccess="false"/>
+   </extension>
+   <extension
+         point="org.springframework.ide.eclipse.boot.dash.injections">
+      <injection
+            class="org.springframework.tooling.boot.ls.BootDashInjections">
+      </injection>
+   </extension>
 
 </plugin>

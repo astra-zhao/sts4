@@ -3,7 +3,7 @@
  * All rights reserved. This program and the accompanying materials
  * are made available under the terms of the Eclipse Public License v1.0
  * which accompanies this distribution, and is available at
- * http://www.eclipse.org/legal/epl-v10.html
+ * https://www.eclipse.org/legal/epl-v10.html
  *
  * Contributors:
  *     Pivotal, Inc. - initial API and implementation
@@ -16,7 +16,9 @@ import java.util.List;
 import java.util.concurrent.Callable;
 import java.util.stream.Collectors;
 
+import org.springframework.beans.factory.InitializingBean;
 import org.springframework.beans.factory.annotation.Autowired;
+import org.springframework.context.ApplicationContext;
 import org.springframework.ide.vscode.commons.cloudfoundry.client.ClientTimeouts;
 import org.springframework.ide.vscode.commons.cloudfoundry.client.CloudFoundryClientFactory;
 import org.springframework.ide.vscode.commons.cloudfoundry.client.cftarget.CFTargetCache;
@@ -27,7 +29,6 @@ import org.springframework.ide.vscode.commons.cloudfoundry.client.cftarget.Clien
 import org.springframework.ide.vscode.commons.cloudfoundry.client.cftarget.NoTargetsException;
 import org.springframework.ide.vscode.commons.cloudfoundry.client.v2.DefaultCloudFoundryClientFactoryV2;
 import org.springframework.ide.vscode.commons.languageserver.completion.VscodeCompletionEngineAdapter;
-import org.springframework.ide.vscode.commons.languageserver.config.LanguageServerInitializer;
 import org.springframework.ide.vscode.commons.languageserver.hover.HoverInfoProvider;
 import org.springframework.ide.vscode.commons.languageserver.hover.VscodeHoverEngineAdapter;
 import org.springframework.ide.vscode.commons.languageserver.reconcile.IReconcileEngine;
@@ -49,50 +50,48 @@ import org.springframework.ide.vscode.commons.yaml.reconcile.ASTTypeCache;
 import org.springframework.ide.vscode.commons.yaml.reconcile.TypeBasedYamlSymbolHandler;
 import org.springframework.ide.vscode.commons.yaml.reconcile.YamlSchemaBasedReconcileEngine;
 import org.springframework.ide.vscode.commons.yaml.schema.YValueHint;
+import org.springframework.ide.vscode.commons.yaml.snippet.SchemaBasedSnippetGenerator;
 import org.springframework.ide.vscode.commons.yaml.structure.YamlStructureProvider;
 import org.springframework.stereotype.Component;
-import org.springframework.util.Assert;
-import org.yaml.snakeyaml.Yaml;
 
 import com.google.common.collect.ImmutableList;
 import com.google.common.collect.ImmutableSet;
 
 @Component
-public class ManifestYamlLanguageServerInitializer implements LanguageServerInitializer {
+public class ManifestYamlLanguageServerInitializer implements InitializingBean {
 
-	private Yaml yaml = new Yaml();
 	private CfJson cfJson = new CfJson();
 	private ManifestYmlSchema schema;
 	private CFTargetCache cfTargetCache;
 
 	private CloudFoundryClientFactory cfClientFactory;
 	ClientParamsProvider defaultClientParamsProvider;
-	private SimpleLanguageServer server;
+
+	@Autowired private ApplicationContext appContext;
+	@Autowired private SimpleLanguageServer server;
+	@Autowired private ASTTypeCache astTypeCache;
 
 	@Override
-	public void initialize(SimpleLanguageServer server) throws Exception {
-		Assert.isNull(this.server, "This initializer should only be called once");
-		this.server = server;
+	public void afterPropertiesSet() throws Exception {
 		this.cfTargetCache = new CFTargetCache(ImmutableList.of(this.defaultClientParamsProvider), cfClientFactory, new ClientTimeouts());
 
 		SimpleTextDocumentService documents = server.getTextDocumentService();
 		SimpleWorkspaceService workspace = server.getWorkspaceService();
 
-		YamlASTProvider parser = new YamlParser(yaml);
+		YamlASTProvider parser = new YamlParser();
 
 		schema = new ManifestYmlSchema(getHintProviders());
+		enableSnippets(schema, true);
 
 		YamlStructureProvider structureProvider = YamlStructureProvider.DEFAULT;
 		YamlAssistContextProvider contextProvider = new SchemaBasedYamlAssistContextProvider(schema);
 		YamlCompletionEngine yamlCompletionEngine = new YamlCompletionEngine(structureProvider, contextProvider, YamlCompletionEngineOptions.DEFAULT);
-		VscodeCompletionEngineAdapter completionEngine = server.createCompletionEngineAdapter(server, yamlCompletionEngine);
+		VscodeCompletionEngineAdapter completionEngine = server.createCompletionEngineAdapter(yamlCompletionEngine);
 		HoverInfoProvider infoProvider = new YamlHoverInfoProvider(parser, structureProvider, contextProvider);
 		HoverHandler hoverEngine = new VscodeHoverEngineAdapter(server, infoProvider);
 		YamlQuickfixes quickfixes = new YamlQuickfixes(server.getQuickfixRegistry(), server.getTextDocumentService(), structureProvider);
-		YamlSchemaBasedReconcileEngine engine = new YamlSchemaBasedReconcileEngine(parser, schema, quickfixes);
+		YamlSchemaBasedReconcileEngine engine = new YamlSchemaBasedReconcileEngine(parser, schema, quickfixes, appContext);
 
-		ASTTypeCache astTypeCache = new ASTTypeCache();
-		engine.setTypeCollector(astTypeCache);
 		documents.onDocumentSymbol(new TypeBasedYamlSymbolHandler(documents, astTypeCache, schema.getDefinitionTypes()));
 
 		documents.onDidChangeContent(params -> {
@@ -195,6 +194,15 @@ public class ManifestYamlLanguageServerInitializer implements LanguageServerInit
 				return stacksProvider;
 			}
 		};
+	}
+
+	public void enableSnippets(ManifestYmlSchema schema, boolean enable) {
+		//TODO: move to where schema bean is defined?
+		if (enable) {
+			schema.f.setSnippetProvider(new SchemaBasedSnippetGenerator(schema.getTypeUtil(), server::createSnippetBuilder));
+		} else {
+			schema.f.setSnippetProvider(null);
+		}
 	}
 
 	private CFTargetCache getCfTargetCache() {

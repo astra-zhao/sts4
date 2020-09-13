@@ -3,7 +3,7 @@
  * All rights reserved. This program and the accompanying materials
  * are made available under the terms of the Eclipse Public License v1.0
  * which accompanies this distribution, and is available at
- * http://www.eclipse.org/legal/epl-v10.html
+ * https://www.eclipse.org/legal/epl-v10.html
  *
  * Contributors:
  *     Pivotal, Inc. - initial API and implementation
@@ -62,6 +62,22 @@ public class UriUtil {
 			return false;
 		} else {
 			return projectUri.equals(uri);
+		}
+	}
+
+	public static File toFile(String docURI) {
+		try {
+			return new File(new URI(docURI));
+		} catch (Exception e) {
+			return null;
+		}
+	}
+
+	public static String toFileString(String docURI) {
+		try {
+			return new File(new URI(docURI)).getAbsolutePath();
+		} catch (Exception e) {
+			return null;
 		}
 	}
 

@@ -1,9 +1,9 @@
 /*******************************************************************************
- * Copyright (c) 2018 Pivotal, Inc.
+ * Copyright (c) 2018, 2020 Pivotal, Inc.
  * All rights reserved. This program and the accompanying materials
  * are made available under the terms of the Eclipse Public License v1.0
  * which accompanies this distribution, and is available at
- * http://www.eclipse.org/legal/epl-v10.html
+ * https://www.eclipse.org/legal/epl-v10.html
  *
  * Contributors:
  *     Pivotal, Inc. - initial API and implementation
@@ -12,9 +12,12 @@ package org.springframework.ide.vscode.boot.app;
 
 import java.util.Collection;
 import java.util.List;
+import java.util.stream.Collectors;
 
+import org.eclipse.lsp4j.DefinitionParams;
 import org.eclipse.lsp4j.Location;
-import org.eclipse.lsp4j.TextDocumentPositionParams;
+import org.eclipse.lsp4j.LocationLink;
+import org.eclipse.lsp4j.Range;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.beans.factory.annotation.Autowired;
@@ -65,10 +68,10 @@ public class YamlPropertiesJavaDefinitionHandler implements DefinitionHandler, L
 	}
 
 	@Override
-	public List<Location> handle(TextDocumentPositionParams position) {
+	public List<LocationLink> handle(DefinitionParams definitionParams) {
 		try {
-			TextDocument doc = documents.get(position);
-			int offset = doc.toOffset(position.getPosition());
+			TextDocument doc = documents.get(definitionParams);
+			int offset = doc.toOffset(definitionParams.getPosition());
 			YamlFileAST ast = getAst(doc);
 			if (ast != null) {
 				YamlDocument ymlDoc = new YamlDocument(doc, structureProvider);
@@ -87,13 +90,30 @@ public class YamlPropertiesJavaDefinitionHandler implements DefinitionHandler, L
 							String key = path.getLastSegment().toPropString();
 							assistPath = path.dropLast().append(YamlPathSegment.valueAt(key));
 						}
+						log.debug("handleYamlDefinition at {}", assistPath.toPropString());
 						assistContext = assistPath.traverse(assistContext);
+						log.debug("assistContext = {}", assistContext);
 
 						if (assistContext != null) {
+							Node node = astPath.get(astPath.size() - 1).get();
+							int start = node.getStartMark().getIndex();
+							int end = node.getEndMark().getIndex();
+							Range originalRange = doc.toRange(start, end - start);
 							if (path.pointsAtValue()) {
-								return assistContext.getDefinitionsForPropertyValue(getNodeRegion(ast, offset));
+								log.debug("pathPointsAtValue = true");
+								DocumentRegion nodeRegion = getNodeRegion(ast, offset);
+								if (nodeRegion != null) {
+									return assistContext.getDefinitionsForPropertyValue(nodeRegion).stream()
+											.map(l -> new LocationLink(l.getUri(), l.getRange(), l.getRange(), originalRange))
+											.collect(Collectors.toList());
+								}
 							} else {
-								return assistContext.getDefinitionsForPropertyKey();
+								log.debug("pathPointsAtValue = false");
+								List<Location> defs = assistContext.getDefinitionsForPropertyKey();
+								log.debug("definitions = {}", defs);
+								return defs.stream()
+										.map(l -> new LocationLink(l.getUri(), l.getRange(), l.getRange(), originalRange))
+										.collect(Collectors.toList());
 							}
 						}
 					}

@@ -1,9 +1,9 @@
 /*******************************************************************************
- * Copyright (c) 2018 Pivotal, Inc.
+ * Copyright (c) 2018, 2019 Pivotal, Inc.
  * All rights reserved. This program and the accompanying materials
  * are made available under the terms of the Eclipse Public License v1.0
  * which accompanies this distribution, and is available at
- * http://www.eclipse.org/legal/epl-v10.html
+ * https://www.eclipse.org/legal/epl-v10.html
  *
  * Contributors:
  *     Pivotal, Inc. - initial API and implementation
@@ -12,15 +12,19 @@ package org.springframework.ide.vscode.commons.java;
 
 import java.io.File;
 import java.io.IOException;
+import java.net.URL;
+import java.nio.file.Files;
 import java.util.List;
 import java.util.Objects;
+import java.util.Optional;
 import java.util.function.Predicate;
 import java.util.stream.Stream;
 
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
-import org.springframework.ide.vscode.commons.languageserver.jdt.ls.Classpath;
-import org.springframework.ide.vscode.commons.languageserver.jdt.ls.Classpath.CPE;
+import org.springframework.ide.vscode.commons.protocol.java.Classpath;
+import org.springframework.ide.vscode.commons.protocol.java.Classpath.CPE;
+import org.springframework.ide.vscode.commons.util.CollectorUtil;
 
 import com.google.common.collect.ImmutableList;
 
@@ -63,35 +67,18 @@ public class IClasspathUtil {
 	}
 
 	private static boolean correspondsToBinaryLocation(CPE cpe, File classpathEntryFile) {
-		classpathEntryFile = canonicalFile(classpathEntryFile);
 		File canonicalFile = binaryLocation(cpe);
 		return Objects.equals(canonicalFile, classpathEntryFile);
 	}
 
-	private static File binaryLocation(CPE cpe) {
+	public static File binaryLocation(CPE cpe) {
 		switch (cpe.getKind()) {
 		case Classpath.ENTRY_KIND_BINARY:
-			return canonicalFile(cpe.getPath());
+			return new File(cpe.getPath());
 		case Classpath.ENTRY_KIND_SOURCE:
-			return canonicalFile(cpe.getOutputFolder());
+			return new File(cpe.getOutputFolder());
 		default:
 			throw new IllegalStateException("Missing switch case?");
-		}
-	}
-
-	private static File canonicalFile(String _f) {
-		if (_f!=null) {
-			File f = new File(_f);
-			return canonicalFile(f);
-		}
-		return null;
-	}
-
-	private static File canonicalFile(File f) {
-		try {
-			return f.getCanonicalFile();
-		} catch (IOException e) {
-			return f.getAbsoluteFile();
 		}
 	}
 
@@ -106,15 +93,79 @@ public class IClasspathUtil {
 		}
 		return Stream.empty();
 	}
+	
+	public static Stream<File> getProjectJavaSourceFolders(IClasspath classpath) {
+		try {
+			if (classpath != null) {
+				return classpath.getClasspathEntries().stream().filter(Classpath::isProjectJavaSource)
+						.map(cpe -> new File(cpe.getPath()));
+			}
+		} catch (Exception e) {
+			log.error("", e);
+		}
+		return Stream.empty();
+	}
+	
+	public static Stream<File> getProjectJavaSourceFoldersWithoutTests(IClasspath classpath) {
+		try {
+			if (classpath != null) {
+				return classpath.getClasspathEntries().stream().filter(Classpath::isProjectNonTestJavaSource)
+						.map(cpe -> new File(cpe.getPath()));
+			}
+		} catch (Exception e) {
+			log.error("", e);
+		}
+		return Stream.empty();
+	}
+	
+	public static Stream<File> getProjectTestJavaSources(IClasspath classpath) {
+		try {
+			if (classpath != null) {
+				return classpath.getClasspathEntries().stream().filter(Classpath::isProjectTestJavaSource)
+						.map(cpe -> new File(cpe.getPath()));
+			}
+		} catch (Exception e) {
+			log.error("", e);
+		}
+		return Stream.empty();
+	}
 
 	public static Stream<File> getOutputFolders(IClasspath classpath) {
 		try {
 			return classpath.getClasspathEntries().stream()
-					.filter(Classpath::isSource)
+					.filter(Classpath::isProjectSource)
 					.map(cpe -> new File(cpe.getOutputFolder()));
 		} catch (Exception e) {
 			log.error("", e);
 		}
 		return Stream.empty();
 	}
+
+	public static Optional<URL> sourceContainer(IClasspath classpath, File binaryClasspathRoot) {
+		CPE cpe = IClasspathUtil.findEntryForBinaryRoot(classpath, binaryClasspathRoot);
+		return cpe == null ? Optional.empty() : Optional.ofNullable(cpe.getSourceContainerUrl());
+	}
+
+	/**
+	 * Classpath resources paths relative to the source folder path
+	 * @return classpath resource relative paths
+	 */
+	public static ImmutableList<String> getClasspathResources(IClasspath classpath) {
+		return IClasspathUtil.getSourceFolders(classpath)
+		.flatMap(folder -> {
+			try {
+				return Files.walk(folder.toPath())
+						.filter(path -> Files.isRegularFile(path))
+						.map(path -> folder.toPath().relativize(path))
+						.map(relativePath -> relativePath.toString())
+						.filter(pathString -> !pathString.endsWith(".java") && !pathString.endsWith(".class"));
+			} catch (IOException e) {
+				return Stream.empty();
+			}
+		})
+		.collect(CollectorUtil.toImmutableList());
+	}
+
+
+
 }

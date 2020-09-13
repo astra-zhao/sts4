@@ -3,7 +3,7 @@
  * All rights reserved. This program and the accompanying materials
  * are made available under the terms of the Eclipse Public License v1.0
  * which accompanies this distribution, and is available at
- * http://www.eclipse.org/legal/epl-v10.html
+ * https://www.eclipse.org/legal/epl-v10.html
  *
  * Contributors:
  *     Pivotal, Inc. - initial API and implementation
@@ -35,6 +35,7 @@ import org.eclipse.lsp4j.Position;
 import org.eclipse.lsp4j.Range;
 import org.eclipse.lsp4j.WorkspaceFolder;
 import org.springframework.ide.vscode.boot.java.handlers.ReferenceProvider;
+import org.springframework.ide.vscode.boot.properties.BootPropertiesLanguageServerComponents;
 import org.springframework.ide.vscode.commons.languageserver.util.SimpleLanguageServer;
 import org.springframework.ide.vscode.commons.util.BadLocationException;
 import org.springframework.ide.vscode.commons.util.text.TextDocument;
@@ -132,23 +133,30 @@ public class ValuePropertyReferencesProvider implements ReferenceProvider {
 	}
 
 	private boolean isPropertiesFile(Path path) {
-		Path fileName = path.getFileName();
+		String fileName = path.getFileName().toString();
 
-		if (fileName.toString().endsWith(".properties") || path.toString().endsWith(".yml")) {
-			return fileName.toString().contains("application");
+		if (fileName.endsWith(BootPropertiesLanguageServerComponents.PROPERTIES)) {
+			return fileName.contains("application");
+		} else {
+			for (String yml : BootPropertiesLanguageServerComponents.YML) {
+				if (fileName.endsWith(yml)) {
+					return fileName.contains("application");
+				}
+			}
 		}
-		else {
-			return false;
-		}
+		return false;
 	}
 
 	private List<Location> findReferences(Path path, String propertyKey) {
 		String filePath = path.toString();
-		if (filePath.endsWith(".properties")) {
+		if (filePath.endsWith(BootPropertiesLanguageServerComponents.PROPERTIES)) {
 			return findReferencesInPropertiesFile(filePath, propertyKey);
-		}
-		else if (filePath.endsWith(".yml")) {
-			return findReferencesInYMLFile(filePath, propertyKey);
+		} else {
+			for (String yml : BootPropertiesLanguageServerComponents.YML) {
+				if (filePath.endsWith(yml)) {
+					return findReferencesInYMLFile(filePath, propertyKey);
+				}
+			}
 		}
 		return new ArrayList<Location>();
 	}
@@ -159,8 +167,7 @@ public class ValuePropertyReferencesProvider implements ReferenceProvider {
 		try {
 			String fileContent = FileUtils.readFileToString(new File(filePath));
 
-			Yaml yaml = new Yaml();
-			YamlASTProvider parser = new YamlParser(yaml);
+			YamlASTProvider parser = new YamlParser();
 
 			URI docURI = Paths.get(filePath).toUri();
 			TextDocument doc = new TextDocument(docURI.toString(), null);

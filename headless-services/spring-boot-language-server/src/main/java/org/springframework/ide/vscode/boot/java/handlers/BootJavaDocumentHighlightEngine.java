@@ -1,9 +1,9 @@
 /*******************************************************************************
- * Copyright (c) 2018 Pivotal, Inc.
+ * Copyright (c) 2018, 2020 Pivotal, Inc.
  * All rights reserved. This program and the accompanying materials
  * are made available under the terms of the Eclipse Public License v1.0
  * which accompanies this distribution, and is available at
- * http://www.eclipse.org/legal/epl-v10.html
+ * https://www.eclipse.org/legal/epl-v10.html
  *
  * Contributors:
  *     Pivotal, Inc. - initial API and implementation
@@ -15,8 +15,8 @@ import java.util.Collection;
 import java.util.List;
 
 import org.eclipse.lsp4j.DocumentHighlight;
+import org.eclipse.lsp4j.DocumentHighlightParams;
 import org.eclipse.lsp4j.Position;
-import org.eclipse.lsp4j.TextDocumentPositionParams;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.ide.vscode.boot.java.BootJavaLanguageServerComponents;
@@ -40,7 +40,7 @@ public class BootJavaDocumentHighlightEngine implements DocumentHighlightHandler
 	}
 
 	@Override
-	public List<DocumentHighlight> handle(TextDocumentPositionParams params) {
+	public List<DocumentHighlight> handle(DocumentHighlightParams params) {
 		SimpleTextDocumentService documents = server.getTextDocumentService();
 		String docURI = params.getTextDocument().getUri();
 

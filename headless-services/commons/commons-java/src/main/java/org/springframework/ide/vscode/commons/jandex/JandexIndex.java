@@ -1,9 +1,9 @@
 /*******************************************************************************
- * Copyright (c) 2016, 2018 Pivotal, Inc.
+ * Copyright (c) 2016, 2019 Pivotal, Inc.
  * All rights reserved. This program and the accompanying materials
  * are made available under the terms of the Eclipse Public License v1.0
  * which accompanies this distribution, and is available at
- * http://www.eclipse.org/legal/epl-v10.html
+ * https://www.eclipse.org/legal/epl-v10.html
  *
  * Contributors:
  *     Pivotal, Inc. - initial API and implementation
@@ -12,14 +12,14 @@
 package org.springframework.ide.vscode.commons.jandex;
 
 import java.io.File;
-import java.util.Collection;
 import java.util.concurrent.ExecutionException;
-import java.util.function.Predicate;
 
 import org.jboss.jandex.ClassInfo;
 import org.jboss.jandex.DotName;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
+import org.springframework.ide.vscode.commons.java.IClasspath;
+import org.springframework.ide.vscode.commons.java.IJavaModuleData;
 import org.springframework.ide.vscode.commons.java.IJavadocProvider;
 import org.springframework.ide.vscode.commons.java.IType;
 
@@ -51,21 +51,22 @@ public class JandexIndex extends BasicJandexIndex {
 		return javadocProviderFactory;
 	}
 
-	public JandexIndex(Collection<File> classpathEntries, IndexFileFinder indexFileFinder,
-			JavadocProviderFactory javadocProviderFactory, BasicJandexIndex... baseIndex) {
-		super(classpathEntries, indexFileFinder, baseIndex);
+	public JandexIndex(IClasspath classpath, IndexFileFinder indexFileFinder,
+			JavadocProviderFactory javadocProviderFactory) {
+		super(classpath, indexFileFinder);
 		this.javadocProviderFactory = javadocProviderFactory;
 	}
 
 	public IType findType(String fqName) {
-		return createType(getClassByName(DotName.createSimple(fqName)));
+		Tuple2<IJavaModuleData, ClassInfo> result = getClassByName(DotName.createSimple(fqName));
+		return result == null ? null : createType(result);
 	}
 
-	private IType createType(Tuple2<File, ClassInfo> match) {
+	private IType createType(Tuple2<IJavaModuleData, ClassInfo> match) {
 		if (match == null) {
 			return null;
 		}
-		File classpathResource = match.getT1();
+		File classpathResource = match.getT1().getContainer();
 		IJavadocProvider javadocProvider = null;
 		try {
 			javadocProvider = javadocProvidersCache.get(classpathResource, () -> {
@@ -81,10 +82,8 @@ public class JandexIndex extends BasicJandexIndex {
 		return Wrappers.wrap(this, match.getT1(), match.getT2(), javadocProvider);
 	}
 
-	public Flux<Tuple2<IType, Double>> fuzzySearchTypes(String searchTerm, Predicate<IType> typeFilter) {
-		return fuzzySearchTypes(searchTerm)
-				.map(match -> Tuples.of(createType(Tuples.of(match.getT1(), match.getT2())), match.getT3()))
-				.filter(t -> typeFilter == null || typeFilter.test(t.getT1()));
+	Flux<Tuple2<IType, Double>> fuzzySearchITypes(String searchTerm) {
+		return fuzzySearchTypes(searchTerm).map(m -> Tuples.of(createType(Tuples.of(m.getT1(), m.getT2())), m.getT3()));
 	}
 
 	public Flux<IType> allSubtypesOf(IType type) {

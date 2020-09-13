@@ -3,7 +3,7 @@
  * All rights reserved. This program and the accompanying materials
  * are made available under the terms of the Eclipse Public License v1.0
  * which accompanies this distribution, and is available at
- * http://www.eclipse.org/legal/epl-v10.html
+ * https://www.eclipse.org/legal/epl-v10.html
  *
  * Contributors:
  *     Pivotal, Inc. - initial API and implementation
@@ -48,7 +48,11 @@ public class ClasspathListenerHandler implements IDelegateCommandHandler {
 		logger.log("ClasspathListenerHandler executeCommand " + commandId + ", " + arguments);
 		switch (commandId) {
 		case "sts.java.addClasspathListener":
-			return addClasspathListener((String) arguments.get(0));
+			boolean isBatched = false;
+			if (arguments.size()>=2) {
+				isBatched = (Boolean)arguments.get(1);
+			}
+			return addClasspathListener((String) arguments.get(0), isBatched);
 		case "sts.java.removeClasspathListener":
 			return removeClasspathListener((String) arguments.get(0));
 		default:
@@ -61,9 +65,9 @@ public class ClasspathListenerHandler implements IDelegateCommandHandler {
 		return handlerImpl.removeClasspathListener(callbackCommandId);
 	}
 
-	private Object addClasspathListener(String callbackCommandId) {
+	private Object addClasspathListener(String callbackCommandId, boolean isBatched) {
 		logger.log("ClasspathListenerHandler addClasspathListener " + callbackCommandId);
-		handlerImpl.addClasspathListener(callbackCommandId);
+		handlerImpl.addClasspathListener(callbackCommandId, isBatched);
 		logger.log("ClasspathListenerHandler addClasspathListener " + callbackCommandId + " => OK");
 		return "ok";
 	}

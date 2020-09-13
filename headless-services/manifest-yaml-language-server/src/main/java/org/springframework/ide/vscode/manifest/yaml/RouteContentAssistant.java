@@ -1,9 +1,9 @@
 /*******************************************************************************
- * Copyright (c) 2017 Pivotal, Inc.
+ * Copyright (c) 2017, 2019 Pivotal, Inc.
  * All rights reserved. This program and the accompanying materials
  * are made available under the terms of the Eclipse Public License v1.0
  * which accompanies this distribution, and is available at
- * http://www.eclipse.org/legal/epl-v10.html
+ * https://www.eclipse.org/legal/epl-v10.html
  *
  * Contributors:
  *     Pivotal, Inc. - initial API and implementation
@@ -102,7 +102,7 @@ public class RouteContentAssistant implements ISubCompletionEngine {
 	}
 
 	private ICompletionProposal createProposal(CompletionFactory f, DocumentRegion region, int offset, String query, double score, YValueHint domain) {
-		DocumentEdits edits = new DocumentEdits(region.getDocument());
+		DocumentEdits edits = new DocumentEdits(region.getDocument(), false);
 		region = region.subSequence(offset - query.length());
 		boolean needSpace = region.textBefore(1).charAt(0)==':'; //Add extra space after ':' if needed!
 		edits.replace(region.getStart(), region.getEnd(), needSpace ? " "+domain.getValue() : domain.getValue());

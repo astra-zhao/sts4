@@ -1,9 +1,9 @@
 /*******************************************************************************
- * Copyright (c) 2017 Pivotal, Inc.
+ * Copyright (c) 2017, 2019 Pivotal, Inc.
  * All rights reserved. This program and the accompanying materials
  * are made available under the terms of the Eclipse Public License v1.0
  * which accompanies this distribution, and is available at
- * http://www.eclipse.org/legal/epl-v10.html
+ * https://www.eclipse.org/legal/epl-v10.html
  *
  * Contributors:
  *     Pivotal, Inc. - initial API and implementation
@@ -30,6 +30,7 @@ import org.springframework.ide.vscode.boot.metadata.LoggerNameProvider;
 import org.springframework.ide.vscode.commons.maven.java.MavenJavaProject;
 import org.springframework.ide.vscode.project.harness.ProjectsHarness;
 
+import com.google.common.collect.ImmutableMap;
 import com.google.common.collect.ImmutableSet;
 
 /**
@@ -38,19 +39,18 @@ import com.google.common.collect.ImmutableSet;
 public class LoggerNameProviderTest {
 
 	private static final String[] JBOSS_RESULTS = {
-			"com.fasterxml.jackson.databind.jsonFormatVisitors", //1
 			// org.jboss is not really a package...
-//			"org.jboss", //2
-			"org.jboss.logging", //3
-			"org.jboss.logging.JBossLogManagerLogger", //4
-			"org.jboss.logging.JBossLogManagerProvider", //5
-			"org.jboss.logging.JBossLogRecord", //6
-			"org.springframework.instrument.classloading.jboss", //7
-			"org.springframework.instrument.classloading.jboss.JBossClassLoaderAdapter", //8
-			"org.springframework.instrument.classloading.jboss.JBossLoadTimeWeaver", //9
-			"org.springframework.instrument.classloading.jboss.JBossMCAdapter", //10
-			"org.springframework.instrument.classloading.jboss.JBossMCTranslatorAdapter", //11
-			"org.springframework.instrument.classloading.jboss.JBossModulesAdapter" //12
+//			"org.jboss", //1
+			"org.jboss.logging", //2
+			"org.jboss.logging.JBossLogManagerLogger", //3
+			"org.jboss.logging.JBossLogManagerProvider", //4
+			"org.jboss.logging.JBossLogRecord", //5
+			"org.springframework.instrument.classloading.jboss", //6
+			"org.springframework.instrument.classloading.jboss.JBossClassLoaderAdapter", //7
+			"org.springframework.instrument.classloading.jboss.JBossLoadTimeWeaver", //8
+			"org.springframework.instrument.classloading.jboss.JBossMCAdapter", //9
+			"org.springframework.instrument.classloading.jboss.JBossMCTranslatorAdapter", //10
+			"org.springframework.instrument.classloading.jboss.JBossModulesAdapter" //11
 	};
 
 	private ProjectsHarness projects = ProjectsHarness.INSTANCE;
@@ -69,7 +69,7 @@ public class LoggerNameProviderTest {
 
 	@Test
 	public void directResults() throws Exception {
-		LoggerNameProvider p = new LoggerNameProvider(null);
+		LoggerNameProvider p = create();
 		String query = "jboss";
 		List<String> directQueryResults = getResults(p, query);
 
@@ -84,7 +84,7 @@ public class LoggerNameProviderTest {
 
 	@Test
 	public void cachedResults() throws Exception {
-		LoggerNameProvider p = new LoggerNameProvider(null);
+		LoggerNameProvider p = create();
 		for (int i = 0; i < 10; i++) {
 			long startTime = System.currentTimeMillis();
 			String query = "jboss";
@@ -105,7 +105,7 @@ public class LoggerNameProviderTest {
 	public void incrementalResults() throws Exception {
 		String fullQuery = "jboss";
 
-		CachingValueProvider p = new LoggerNameProvider(null);
+		LoggerNameProvider p = create();
 		for (int i = 0; i <= fullQuery.length(); i++) {
 			String query = fullQuery.substring(0, i);
 			List<String> results = getResults(p, query);
@@ -118,6 +118,10 @@ public class LoggerNameProviderTest {
 				assertElementsAtLeast(results, JBOSS_RESULTS);
 			}
 		}
+	}
+
+	private LoggerNameProvider create() {
+		return (LoggerNameProvider) LoggerNameProvider.factory(null, null).apply(ImmutableMap.of());
 	}
 
 	private void assertElementsAtLeast(List<String> results, String[] expecteds) {
@@ -150,7 +154,7 @@ public class LoggerNameProviderTest {
 		return buf.toString();
 	}
 
-	private List<String> getResults(CachingValueProvider p, String query) {
+	private List<String> getResults(LoggerNameProvider p, String query) {
 		return p.getValues(project, query).toStream()
 		.map((h) -> h.getValue().toString())
 		.collect(Collectors.toList());

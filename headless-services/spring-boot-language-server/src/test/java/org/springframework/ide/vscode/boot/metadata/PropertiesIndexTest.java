@@ -1,9 +1,9 @@
 /*******************************************************************************
- * Copyright (c) 2016, 2017 Pivotal, Inc.
+ * Copyright (c) 2016, 2019 Pivotal, Inc.
  * All rights reserved. This program and the accompanying materials
  * are made available under the terms of the Eclipse Public License v1.0
  * which accompanies this distribution, and is available at
- * http://www.eclipse.org/legal/epl-v10.html
+ * https://www.eclipse.org/legal/epl-v10.html
  *
  * Contributors:
  *     Pivotal, Inc. - initial API and implementation
@@ -31,14 +31,14 @@ public class PropertiesIndexTest {
 	private static final String CUSTOM_PROPERTIES_PROJECT = "custom-properties-boot-project";
 
 	private ProjectsHarness projects = ProjectsHarness.INSTANCE;
-	private ProgressService progressService = (id, msg) -> { /*ignore*/ };
+	private ProgressService progressService = ProgressService.NO_PROGRESS;
 
 	@Test
 	public void springStandardPropertyPresent_Maven() throws Exception {
 		SpringPropertiesIndexManager indexManager = new SpringPropertiesIndexManager(
-				new ValueProviderRegistry(), null);
+				new ValueProviderRegistry(), null, null);
 		IJavaProject mavenProject = projects.mavenProject(CUSTOM_PROPERTIES_PROJECT);
-		FuzzyMap<PropertyInfo> index = indexManager.get(mavenProject, progressService);
+		FuzzyMap<PropertyInfo> index = indexManager.get(mavenProject, progressService).getProperties();
 		PropertyInfo propertyInfo = index.get("server.port");
 		assertNotNull(propertyInfo);
 		assertEquals(Integer.class.getName(), propertyInfo.getType());
@@ -48,9 +48,9 @@ public class PropertiesIndexTest {
 	@Test
 	public void customPropertyPresent_Maven() throws Exception {
 		SpringPropertiesIndexManager indexManager = new SpringPropertiesIndexManager(
-				new ValueProviderRegistry(), null);
+				new ValueProviderRegistry(), null, null);
 		IJavaProject mavenProject = projects.mavenProject(CUSTOM_PROPERTIES_PROJECT);
-		FuzzyMap<PropertyInfo> index = indexManager.get(mavenProject, progressService);
+		FuzzyMap<PropertyInfo> index = indexManager.get(mavenProject, progressService).getProperties();
 		PropertyInfo propertyInfo = index.get("demo.settings.user");
 		assertNotNull(propertyInfo);
 		assertEquals(String.class.getName(), propertyInfo.getType());
@@ -60,9 +60,9 @@ public class PropertiesIndexTest {
 	@Test
 	public void propertyNotPresent_Maven() throws Exception {
 		SpringPropertiesIndexManager indexManager = new SpringPropertiesIndexManager(
-				new ValueProviderRegistry(), null);
+				new ValueProviderRegistry(), null, null);
 		IJavaProject mavenProject = projects.mavenProject(CUSTOM_PROPERTIES_PROJECT);
-		FuzzyMap<PropertyInfo> index = indexManager.get(mavenProject, progressService);
+		FuzzyMap<PropertyInfo> index = indexManager.get(mavenProject, progressService).getProperties();
 		PropertyInfo propertyInfo = index.get("my.server.port");
 		assertNull(propertyInfo);
 	}

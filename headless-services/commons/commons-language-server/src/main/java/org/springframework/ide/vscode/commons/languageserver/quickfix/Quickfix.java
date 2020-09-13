@@ -3,7 +3,7 @@
  * All rights reserved. This program and the accompanying materials
  * are made available under the terms of the Eclipse Public License v1.0
  * which accompanies this distribution, and is available at
- * http://www.eclipse.org/legal/epl-v10.html
+ * https://www.eclipse.org/legal/epl-v10.html
  *
  * Contributors:
  *     Pivotal, Inc. - initial API and implementation
@@ -14,6 +14,7 @@ import org.eclipse.lsp4j.CodeActionContext;
 import org.eclipse.lsp4j.Command;
 import org.eclipse.lsp4j.Diagnostic;
 import org.eclipse.lsp4j.Range;
+import org.springframework.ide.vscode.commons.util.text.DocumentUtil;
 
 import com.google.common.collect.ImmutableList;
 
@@ -59,7 +60,7 @@ public class Quickfix<T> {
 	}
 
 	public boolean appliesTo(Range range, CodeActionContext context) {
-		return range.equals(this.range) && appliesToContext(context);
+		return appliesToContext(context) && DocumentUtil.containsRange(this.range, range);
 	}
 
 	private boolean appliesToContext(CodeActionContext context) {

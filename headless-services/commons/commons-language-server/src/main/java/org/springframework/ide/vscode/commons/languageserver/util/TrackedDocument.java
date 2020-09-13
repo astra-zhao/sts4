@@ -3,7 +3,7 @@
  * All rights reserved. This program and the accompanying materials
  * are made available under the terms of the Eclipse Public License v1.0
  * which accompanies this distribution, and is available at
- * http://www.eclipse.org/legal/epl-v10.html
+ * https://www.eclipse.org/legal/epl-v10.html
  *
  * Contributors:
  *     Pivotal, Inc. - initial API and implementation
@@ -20,7 +20,7 @@ import com.google.common.collect.ImmutableList;
 public class TrackedDocument {
 
 	private final TextDocument doc;
-	private List<Quickfix> quickfixes = ImmutableList.of();
+	private List<Quickfix<?>> quickfixes = ImmutableList.of();
 	private int openCount = 0;
 
 	public TrackedDocument(TextDocument doc) {
@@ -31,11 +31,11 @@ public class TrackedDocument {
 		return doc;
 	}
 
-	public void setQuickfixes(List<Quickfix> quickfixes) {
+	public void setQuickfixes(List<Quickfix<?>> quickfixes) {
 		this.quickfixes = quickfixes;
 	}
 
-	public List<Quickfix> getQuickfixes() {
+	public List<Quickfix<?>> getQuickfixes() {
 		return quickfixes;
 	}
 

@@ -1,9 +1,9 @@
 /*******************************************************************************
- * Copyright (c) 2015 Pivotal, Inc.
+ * Copyright (c) 2015, 2019 Pivotal, Inc.
  * All rights reserved. This program and the accompanying materials
  * are made available under the terms of the Eclipse Public License v1.0
  * which accompanies this distribution, and is available at
- * http://www.eclipse.org/legal/epl-v10.html
+ * https://www.eclipse.org/legal/epl-v10.html
  *
  * Contributors:
  *     Pivotal, Inc. - initial API and implementation
@@ -17,6 +17,8 @@ import java.util.regex.Matcher;
 import java.util.regex.Pattern;
 
 import org.eclipse.lsp4j.TextEdit;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
 import org.springframework.ide.vscode.commons.util.Assert;
 import org.springframework.ide.vscode.commons.util.BadLocationException;
 import org.springframework.ide.vscode.commons.util.text.IDocument;
@@ -44,6 +46,8 @@ import org.springframework.ide.vscode.commons.util.text.TextDocument;
  * @author Kris De Volder
  */
 public class DocumentEdits implements ProposalApplier {
+	
+	private static final Logger log = LoggerFactory.getLogger(DocumentEdits.class);
 
 	private static final Pattern NON_WS_CHAR = Pattern.compile("\\S");
 
@@ -322,6 +326,7 @@ public class DocumentEdits implements ProposalApplier {
 
 	private List<Edit> edits = new ArrayList<Edit>();
 	private IDocument doc;
+	private boolean hasSnippets;
 
 	/**
 	 * When this is true, the cursor is moved after each edit, to be positioned right after the
@@ -332,10 +337,11 @@ public class DocumentEdits implements ProposalApplier {
 	 */
 	private boolean grabCursor = true;
 
-	public DocumentEdits(IDocument doc) {
+	public DocumentEdits(IDocument doc, boolean hasSnippets) {
 		this.doc = doc;
+		this.hasSnippets = hasSnippets;
 	}
-
+	
 	public void delete(int start, int end) {
 		Assert.isLegal(start<=end);
 		edits.add(new Deletion(grabCursor, start, end));
@@ -343,6 +349,17 @@ public class DocumentEdits implements ProposalApplier {
 
 	public void delete(int offset, String text) {
 		delete(offset, offset+text.length());
+	}
+
+	public void insertSnippet(int offset, String snippet) {
+		//The way we track/handle snippet usage is not totally correct.
+		//There is a bug here that if we compose multiple edits, some of which
+		//use snippet placeholders and others which don't, all will be considered
+		//as using snippets. This may pose problems if somehow literal text that
+		//looks like a placeholder is combined with real snippet. Then all will
+		//be treated as a snippet.
+		hasSnippets |= true; 
+		edits.add(new Insertion(grabCursor, offset, snippet.toString()));
 	}
 
 	public void insert(int offset, String insert) {
@@ -492,5 +509,25 @@ public class DocumentEdits implements ProposalApplier {
 
 	public boolean hasRelativeIndents() {
 		return true;
+	}
+
+	final public boolean hasSnippets() {
+		return hasSnippets;
+	}
+
+	public void dropPrefix(String prefix) {
+		try {
+			if (edits.size() == 2 && edits.get(0) instanceof Deletion && edits.get(1) instanceof Insertion) {
+				Deletion del = (Deletion) edits.get(0);
+				Insertion ins = (Insertion) edits.get(1);
+				String replacedText = doc.textBetween(del.start, del.end);
+				if (ins.offset>=del.start && ins.offset <=del.end && replacedText.startsWith(prefix)) {
+					del.start+=prefix.length();
+					ins.text = ins.text.substring(prefix.length());
+				}
+			}
+		} catch (BadLocationException e) {
+			log.error("", e);
+		}
 	}
 }

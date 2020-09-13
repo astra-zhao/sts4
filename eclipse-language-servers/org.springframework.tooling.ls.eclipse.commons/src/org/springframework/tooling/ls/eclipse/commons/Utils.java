@@ -1,16 +1,18 @@
 /*******************************************************************************
- * Copyright (c) 2018 Pivotal, Inc.
+ * Copyright (c) 2018, 2020 Pivotal, Inc.
  * All rights reserved. This program and the accompanying materials
  * are made available under the terms of the Eclipse Public License v1.0
  * which accompanies this distribution, and is available at
- * http://www.eclipse.org/legal/epl-v10.html
+ * https://www.eclipse.org/legal/epl-v10.html
  *
  * Contributors:
  *     Pivotal, Inc. - initial API and implementation
  *******************************************************************************/
 package org.springframework.tooling.ls.eclipse.commons;
 
+import java.io.UnsupportedEncodingException;
 import java.net.URI;
+import java.net.URLEncoder;
 import java.util.Arrays;
 import java.util.Objects;
 import java.util.stream.Stream;
@@ -28,6 +30,19 @@ import org.eclipse.ui.PlatformUI;
 
 @SuppressWarnings("restriction")
 public class Utils {
+
+	private static final String UTF8 = "UTF8";
+	private static final String URL_PREFIX = "http://org.eclipse.ui.intro/execute?command=";
+	private static final String EQUALS = "=";
+	private static final String PARAMETERS_SEPARATOR = ",";
+	private static final String PARAMETERS_START = "(";
+	private static final String PARAMETERS_END = ")";
+	private static final String LABEL_PARAMETER_PREFIX = "&label=";
+
+	private static final String JAVA_ELEMENT_COMMAND = "org.springframework.tooling.ls.eclipse.commons.commands.OpenJavaElementInEditor";
+	private static final String BINDING_KEY_PARAMETER_ID = "bindingKey";
+	private static final String PROJECT_NAME_PARAMETER_ID = "projectName";
+
 
 	public static Stream<ITextViewer> getActiveTextViewers() {
 		return getActiveEditors()
@@ -103,6 +118,30 @@ public class Utils {
 			}
 		}
 		return null;
+	}
+
+	public static URI eclipseIntroUri(String projectName, String bindingKey, String label) throws UnsupportedEncodingException {
+		StringBuilder paramBuilder = new StringBuilder(JAVA_ELEMENT_COMMAND);
+		paramBuilder.append(PARAMETERS_START);
+		paramBuilder.append(BINDING_KEY_PARAMETER_ID);
+		paramBuilder.append(EQUALS);
+		paramBuilder.append(bindingKey);
+		if (projectName != null) {
+			paramBuilder.append(PARAMETERS_SEPARATOR);
+			paramBuilder.append(PROJECT_NAME_PARAMETER_ID);
+			paramBuilder.append(EQUALS);
+			paramBuilder.append(projectName);
+		}
+		paramBuilder.append(PARAMETERS_END);
+
+		StringBuilder urlBuilder = new StringBuilder(URL_PREFIX);
+		urlBuilder.append(URLEncoder.encode(paramBuilder.toString(), UTF8));
+
+		if (label != null) {
+			urlBuilder.append(LABEL_PARAMETER_PREFIX);
+			urlBuilder.append(URLEncoder.encode(label, UTF8));
+		}
+		return URI.create(urlBuilder.toString());
 	}
 
 }

@@ -1,9 +1,9 @@
 /*******************************************************************************
- * Copyright (c) 2016 Pivotal, Inc.
+ * Copyright (c) 2016, 2019 Pivotal, Inc.
  * All rights reserved. This program and the accompanying materials
  * are made available under the terms of the Eclipse Public License v1.0
  * which accompanies this distribution, and is available at
- * http://www.eclipse.org/legal/epl-v10.html
+ * https://www.eclipse.org/legal/epl-v10.html
  *
  * Contributors:
  *     Pivotal, Inc. - initial API and implementation
@@ -14,11 +14,12 @@ import java.time.Duration;
 import java.util.concurrent.ExecutionException;
 import java.util.concurrent.TimeUnit;
 
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
 import org.springframework.ide.vscode.boot.metadata.ValueProviderRegistry.ValueProviderStrategy;
 import org.springframework.ide.vscode.boot.metadata.hints.StsValueHint;
 import org.springframework.ide.vscode.commons.java.IJavaProject;
 import org.springframework.ide.vscode.commons.util.FuzzyMatcher;
-import org.springframework.ide.vscode.commons.util.Log;
 
 import com.google.common.cache.Cache;
 import com.google.common.cache.CacheBuilder;
@@ -52,6 +53,8 @@ import reactor.util.function.Tuples;
  */
 public abstract class CachingValueProvider implements ValueProviderStrategy {
 
+	private static final Logger log = LoggerFactory.getLogger(CachingValueProvider.class);
+
 	private static final Duration DEFAULT_TIMEOUT = Duration.ofMillis(1000);
 
 	/**
@@ -76,6 +79,8 @@ public abstract class CachingValueProvider implements ValueProviderStrategy {
 
 		public CacheEntry(String query, Flux<StsValueHint> producer) {
 			values = producer
+			.doOnNext(t -> count++)
+			.doOnComplete(() -> isComplete = true)
 			.take(MAX_RESULTS)
 			.cache(MAX_RESULTS);
 			values.subscribe(); // create infinite demand so that we actually force cache entries to be fetched upto the max.
@@ -95,7 +100,7 @@ public abstract class CachingValueProvider implements ValueProviderStrategy {
 		try {
 			cached = cache.get(key, () -> new CacheEntry(query, getValuesIncremental(javaProject, query)));
 		} catch (ExecutionException e) {
-			Log.log(e);
+			log.error("{}", e);
 		}
 		return cached.values;
 	}

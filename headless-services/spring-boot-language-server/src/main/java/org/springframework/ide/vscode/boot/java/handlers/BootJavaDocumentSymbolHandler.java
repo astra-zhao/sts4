@@ -3,7 +3,7 @@
  * All rights reserved. This program and the accompanying materials
  * are made available under the terms of the Eclipse Public License v1.0
  * which accompanies this distribution, and is available at
- * http://www.eclipse.org/legal/epl-v10.html
+ * https://www.eclipse.org/legal/epl-v10.html
  *
  * Contributors:
  *     Pivotal, Inc. - initial API and implementation
@@ -14,7 +14,7 @@ import java.util.List;
 
 import org.eclipse.lsp4j.DocumentSymbolParams;
 import org.eclipse.lsp4j.SymbolInformation;
-import org.springframework.ide.vscode.boot.java.utils.SpringIndexer;
+import org.springframework.ide.vscode.boot.app.SpringSymbolIndex;
 import org.springframework.ide.vscode.commons.languageserver.util.DocumentSymbolHandler;
 
 /**
@@ -22,9 +22,9 @@ import org.springframework.ide.vscode.commons.languageserver.util.DocumentSymbol
  */
 public class BootJavaDocumentSymbolHandler implements DocumentSymbolHandler {
 
-	private SpringIndexer indexer;
+	private SpringSymbolIndex indexer;
 
-	public BootJavaDocumentSymbolHandler(SpringIndexer indexer) {
+	public BootJavaDocumentSymbolHandler(SpringSymbolIndex indexer) {
 		this.indexer = indexer;
 	}
 

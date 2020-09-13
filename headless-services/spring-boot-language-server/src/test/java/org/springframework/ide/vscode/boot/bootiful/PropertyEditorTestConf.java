@@ -1,9 +1,9 @@
 /*******************************************************************************
- * Copyright (c) 2018 Pivotal, Inc.
+ * Copyright (c) 2018, 2019 Pivotal, Inc.
  * All rights reserved. This program and the accompanying materials
  * are made available under the terms of the Eclipse Public License v1.0
  * which accompanies this distribution, and is available at
- * http://www.eclipse.org/legal/epl-v10.html
+ * https://www.eclipse.org/legal/epl-v10.html
  *
  * Contributors:
  *     Pivotal, Inc. - initial API and implementation
@@ -21,7 +21,8 @@ import org.springframework.ide.vscode.boot.java.links.JavaDocumentUriProvider;
 import org.springframework.ide.vscode.boot.java.links.SourceLinkFactory;
 import org.springframework.ide.vscode.boot.java.links.SourceLinks;
 import org.springframework.ide.vscode.boot.java.utils.CompilationUnitCache;
-import org.springframework.ide.vscode.boot.java.utils.SpringLiveHoverWatchdog;
+import org.springframework.ide.vscode.boot.java.utils.SymbolCache;
+import org.springframework.ide.vscode.boot.java.utils.SymbolCacheVoid;
 import org.springframework.ide.vscode.boot.metadata.ValueProviderRegistry;
 import org.springframework.ide.vscode.boot.metadata.types.TypeUtil;
 import org.springframework.ide.vscode.boot.metadata.types.TypeUtilProvider;
@@ -32,18 +33,17 @@ import org.springframework.ide.vscode.commons.languageserver.util.SimpleLanguage
 import org.springframework.ide.vscode.commons.util.text.IDocument;
 import org.springframework.ide.vscode.commons.util.text.LanguageId;
 import org.springframework.ide.vscode.project.harness.BootLanguageServerHarness;
-import org.springframework.ide.vscode.project.harness.MockRunningAppProvider;
 
 @Configuration
 @Import(AdHocPropertyHarnessTestConf.class)
 public class PropertyEditorTestConf {
 
-	@Bean PropertyIndexHarness indexHarness(ValueProviderRegistry valueProviders) {
-		return new PropertyIndexHarness(valueProviders);
+	@Bean SymbolCache symbolCache() {
+		return new SymbolCacheVoid();
 	}
 
-	@Bean MockRunningAppProvider mockAppsHarness() {
-		return new MockRunningAppProvider();
+	@Bean PropertyIndexHarness indexHarness(ValueProviderRegistry valueProviders) {
+		return new PropertyIndexHarness(valueProviders);
 	}
 
 	@Bean BootLanguageServerHarness harness(
@@ -59,15 +59,13 @@ public class PropertyEditorTestConf {
 
 	@Bean BootLanguageServerParams serverParams(SimpleLanguageServer server, PropertyIndexHarness indexHarness) {
 		JavaProjectFinder projectFinder = indexHarness.getProjectFinder();
-		TypeUtilProvider typeUtilProvider = (IDocument doc) -> new TypeUtil(projectFinder.find(new TextDocumentIdentifier(doc.getUri())));
+		TypeUtilProvider typeUtilProvider = (SourceLinks sourceLinks, IDocument doc) -> new TypeUtil(sourceLinks, projectFinder.find(new TextDocumentIdentifier(doc.getUri())));
 
 		return new BootLanguageServerParams(
 				projectFinder,
 				ProjectObserver.NULL,
 				indexHarness.getIndexProvider(),
-				typeUtilProvider,
-				mockAppsHarness().provider,
-				SpringLiveHoverWatchdog.DEFAULT_INTERVAL
+				typeUtilProvider
 		);
 	}
 

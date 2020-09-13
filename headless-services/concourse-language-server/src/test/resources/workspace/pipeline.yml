@@ -55,7 +55,7 @@ resources:
 - name: slack-notification
   type: slack-notification
   source:
-    url: https://hooks.slack.com/services/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
+    url: {{slack_webhook}}
 - name: docker-image
   type: docker-image
   source:
@@ -81,7 +81,7 @@ jobs:
   - task: build-vscode-extensions
     file: sts4/concourse/tasks/build-vscode-extensions.yml
     on_success:
-      aggregate:
+      in_parallel:
       - put: s3-manifest-yaml-vsix
         params: 
           file: vsix-files/vscode-manifest-yaml-*.vsix
@@ -98,7 +98,7 @@ jobs:
            Concourse ${BUILD_PIPELINE_NAME}/${BUILD_JOB_NAME}/${BUILD_NAME} has failed!
 - name: build-website
   plan:
-  - aggregate:
+  - in_parallel:
     - get: sts4
     - get: s3-manifest-yaml-vsix
       passed:

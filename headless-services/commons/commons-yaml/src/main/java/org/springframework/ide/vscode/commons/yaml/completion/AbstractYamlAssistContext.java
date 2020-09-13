@@ -3,7 +3,7 @@
  * All rights reserved. This program and the accompanying materials
  * are made available under the terms of the Eclipse Public License v1.0
  * which accompanies this distribution, and is available at
- * http://www.eclipse.org/legal/epl-v10.html
+ * https://www.eclipse.org/legal/epl-v10.html
  *
  * Contributors:
  *     Pivotal, Inc. - initial API and implementation
@@ -70,7 +70,7 @@ public abstract class AbstractYamlAssistContext implements YamlAssistContext {
 	private static PrefixFinder prefixfinder = new PrefixFinder() {
 		@Override
 		protected boolean isPrefixChar(char c) {
-			return !Character.isWhitespace(c);
+			return !(Character.isWhitespace(c) || c==',');
 		}
 	};
 
@@ -87,7 +87,7 @@ public abstract class AbstractYamlAssistContext implements YamlAssistContext {
 					valueStart++;
 				}
 				if (offset>=valueStart) {
-					return doc.textBetween(valueStart, offset);
+					return prefixfinder.getPrefix(doc.getDocument(), offset, valueStart);
 				} else {
 					//only whitespace, or nothing found upto the cursor
 					return "";

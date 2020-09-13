@@ -1,9 +1,9 @@
 /*******************************************************************************
- * Copyright (c) 2016 Rogue Wave Software Inc. and others.
+ * Copyright (c) 2016, 2019 Rogue Wave Software Inc. and others.
  * All rights reserved. This program and the accompanying materials
  * are made available under the terms of the Eclipse Public License v1.0
  * which accompanies this distribution, and is available at
- * http://www.eclipse.org/legal/epl-v10.html
+ * https://www.eclipse.org/legal/epl-v10.html
  *
  * Contributors:
  *  Michał Niewrzał (Rogue Wave Software Inc.) - initial implementation
@@ -24,16 +24,17 @@ import org.eclipse.lsp4e.LanguageServiceAccessor;
 import org.eclipse.lsp4e.LanguageServiceAccessor.LSPDocumentInfo;
 import org.eclipse.lsp4j.Location;
 import org.eclipse.swt.widgets.Shell;
-import org.eclipse.ui.IEditorPart;
 import org.eclipse.ui.IWorkbenchPage;
 import org.eclipse.ui.IWorkbenchPart;
 import org.eclipse.ui.PlatformUI;
 import org.eclipse.ui.handlers.HandlerUtil;
 import org.eclipse.ui.keys.IBindingService;
+import org.eclipse.ui.part.MultiPageEditorPart;
 import org.eclipse.ui.texteditor.ITextEditor;
 import org.springframework.tooling.ls.eclipse.gotosymbol.dialogs.GotoSymbolDialog;
 import org.springframework.tooling.ls.eclipse.gotosymbol.dialogs.GotoSymbolDialogModel;
 import org.springframework.tooling.ls.eclipse.gotosymbol.dialogs.InFileSymbolsProvider;
+import org.springframework.tooling.ls.eclipse.gotosymbol.dialogs.InProjectSymbolsProvider;
 import org.springframework.tooling.ls.eclipse.gotosymbol.dialogs.InWorkspaceSymbolsProvider;
 
 @SuppressWarnings("restriction")
@@ -59,20 +60,13 @@ public class GotoSymbolHandler extends AbstractHandler {
 			debug("GotoSymbolDialog already open: send 'toggle' signal");
 			currentDialog.toggleSymbolsProvider();
 		} else {
-			IEditorPart part = HandlerUtil.getActiveEditor(event);
+			IWorkbenchPart part = getActiveWorkbenchPart(HandlerUtil.getActiveEditor(event));
 			if (part instanceof ITextEditor) {
 				final Shell shell = HandlerUtil.getActiveShell(event);
 				final ITextEditor textEditor = (ITextEditor) part;
 				
-				GotoSymbolDialogModel model = new GotoSymbolDialogModel(getKeybindings(event), InWorkspaceSymbolsProvider.createFor(event), InFileSymbolsProvider.createFor(textEditor))
-				.setOkHandler(symbolInformation -> {
-					if (symbolInformation!=null) {
-						Location location = symbolInformation.getLocation();
-						IWorkbenchPage page = PlatformUI.getWorkbench().getActiveWorkbenchWindow().getActivePage();
-						LSPEclipseUtils.openInEditor(location, page);
-					}
-					return true;
-				});
+				GotoSymbolDialogModel model = new GotoSymbolDialogModel(getKeybindings(event), InWorkspaceSymbolsProvider.createFor(event), InProjectSymbolsProvider.createFor(event), InFileSymbolsProvider.createFor(textEditor))
+				.setOkHandler(GotoSymbolDialogModel.OPEN_IN_EDITOR_OK_HANDLER);
 				GotoSymbolDialog dialog = new GotoSymbolDialog(shell, textEditor, model, /*alignRight*/ false);
 				currentDialog = model;
 				dialog.open();
@@ -103,7 +97,7 @@ public class GotoSymbolHandler extends AbstractHandler {
 		return r;
 	}
 	public boolean _isEnabled() {
-		IWorkbenchPart part = PlatformUI.getWorkbench().getActiveWorkbenchWindow().getActivePage().getActivePart();
+		IWorkbenchPart part = getActiveWorkbenchPart(PlatformUI.getWorkbench().getActiveWorkbenchWindow().getActivePage().getActivePart());
 		if (part instanceof ITextEditor) {
 			debug("activePart instanceof ITextEditor");
 			List<LSPDocumentInfo> infos = LanguageServiceAccessor.getLSPDocumentInfosFor(
@@ -113,5 +107,16 @@ public class GotoSymbolHandler extends AbstractHandler {
 		}
 		debug("activePart not ITextEditor: "+part);
 		return false;
+	}
+	
+	private static IWorkbenchPart getActiveWorkbenchPart(IWorkbenchPart part) {
+		if (part instanceof MultiPageEditorPart) {
+			MultiPageEditorPart multipageEditor = (MultiPageEditorPart) part;
+			Object page = multipageEditor.getSelectedPage();
+			if (page instanceof IWorkbenchPart) {
+				part = (IWorkbenchPart) page;
+			}			
+		}
+		return part;
 	}
 }

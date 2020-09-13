@@ -3,7 +3,7 @@
  * All rights reserved. This program and the accompanying materials
  * are made available under the terms of the Eclipse Public License v1.0
  * which accompanies this distribution, and is available at
- * http://www.eclipse.org/legal/epl-v10.html
+ * https://www.eclipse.org/legal/epl-v10.html
  *
  * Contributors:
  *     Pivotal, Inc. - initial API and implementation
@@ -14,8 +14,8 @@ import java.util.List;
 
 import org.eclipse.lsp4j.SymbolInformation;
 import org.eclipse.lsp4j.WorkspaceSymbolParams;
+import org.springframework.ide.vscode.boot.app.SpringSymbolIndex;
 import org.springframework.ide.vscode.boot.java.requestmapping.LiveAppURLSymbolProvider;
-import org.springframework.ide.vscode.boot.java.utils.SpringIndexer;
 import org.springframework.ide.vscode.commons.languageserver.util.WorkspaceSymbolHandler;
 
 /**
@@ -23,10 +23,10 @@ import org.springframework.ide.vscode.commons.languageserver.util.WorkspaceSymbo
  */
 public class BootJavaWorkspaceSymbolHandler implements WorkspaceSymbolHandler {
 
-	private final SpringIndexer indexer;
+	private final SpringSymbolIndex indexer;
 	private final LiveAppURLSymbolProvider liveAppSymbolProvider;
 
-	public BootJavaWorkspaceSymbolHandler(SpringIndexer indexer, LiveAppURLSymbolProvider liveAppSymbolProvider) {
+	public BootJavaWorkspaceSymbolHandler(SpringSymbolIndex indexer, LiveAppURLSymbolProvider liveAppSymbolProvider) {
 		this.indexer = indexer;
 		this.liveAppSymbolProvider = liveAppSymbolProvider;
 	}

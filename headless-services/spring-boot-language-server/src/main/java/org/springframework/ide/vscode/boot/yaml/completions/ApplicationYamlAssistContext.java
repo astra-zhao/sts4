@@ -1,9 +1,9 @@
 /*******************************************************************************
- * Copyright (c) 2015, 2018 Pivotal, Inc.
+ * Copyright (c) 2015, 2019 Pivotal, Inc.
  * All rights reserved. This program and the accompanying materials
  * are made available under the terms of the Eclipse Public License v1.0
  * which accompanies this distribution, and is available at
- * http://www.eclipse.org/legal/epl-v10.html
+ * https://www.eclipse.org/legal/epl-v10.html
  *
  * Contributors:
  *     Pivotal, Inc. - initial API and implementation
@@ -26,13 +26,14 @@ import org.slf4j.LoggerFactory;
 import org.springframework.ide.vscode.boot.common.InformationTemplates;
 import org.springframework.ide.vscode.boot.common.PropertyCompletionFactory;
 import org.springframework.ide.vscode.boot.common.RelaxedNameConfig;
+import org.springframework.ide.vscode.boot.configurationmetadata.ConfigurationMetadataGroup;
 import org.springframework.ide.vscode.boot.configurationmetadata.Deprecation;
-import org.springframework.ide.vscode.boot.java.BootJavaLanguageServerComponents;
 import org.springframework.ide.vscode.boot.java.links.JavaElementLocationProvider;
-import org.springframework.ide.vscode.boot.java.links.SourceLinkFactory;
 import org.springframework.ide.vscode.boot.java.links.SourceLinks;
 import org.springframework.ide.vscode.boot.metadata.IndexNavigator;
 import org.springframework.ide.vscode.boot.metadata.PropertyInfo;
+import org.springframework.ide.vscode.boot.metadata.PropertyInfo.PropertySource;
+import org.springframework.ide.vscode.boot.metadata.SpringPropertyIndex;
 import org.springframework.ide.vscode.boot.metadata.hints.HintProvider;
 import org.springframework.ide.vscode.boot.metadata.hints.StsValueHint;
 import org.springframework.ide.vscode.boot.metadata.hints.ValueHintHoverInfo;
@@ -55,7 +56,6 @@ import org.springframework.ide.vscode.commons.languageserver.completion.IComplet
 import org.springframework.ide.vscode.commons.languageserver.completion.LazyProposalApplier;
 import org.springframework.ide.vscode.commons.languageserver.completion.ScoreableProposal;
 import org.springframework.ide.vscode.commons.util.CollectionUtil;
-import org.springframework.ide.vscode.commons.util.FuzzyMap;
 import org.springframework.ide.vscode.commons.util.FuzzyMap.Match;
 import org.springframework.ide.vscode.commons.util.FuzzyMatcher;
 import org.springframework.ide.vscode.commons.util.Renderable;
@@ -118,10 +118,10 @@ public abstract class ApplicationYamlAssistContext extends AbstractYamlAssistCon
 	protected String appendTextFor(Type type) {
 		//Note that proper indentation after each \n" is added automatically
 		//so the strings created here do not need to contain indentation spaces
-		if (TypeUtil.isMap(type)) {
+		if (typeUtil.isMap(type)) {
 			//ready to enter nested map key on next line
 			return "\n"+YamlIndentUtil.INDENT_STR;
-		} if (TypeUtil.isSequencable(type)) {
+		} if (typeUtil.isSequencable(type)) {
 			//ready to enter sequence element on next line
 			return "\n- ";
 		} else if (typeUtil.isAtomic(type)) {
@@ -138,8 +138,8 @@ public abstract class ApplicationYamlAssistContext extends AbstractYamlAssistCon
 	 */
 	protected abstract Type getType();
 
-	public static ApplicationYamlAssistContext subdocument(YamlDocument doc, int documentSelector, FuzzyMap<PropertyInfo> index, PropertyCompletionFactory completionFactory, TypeUtil typeUtil, RelaxedNameConfig conf, JavaElementLocationProvider javaElementLocationProvider) {
-		return new IndexContext(doc, documentSelector, YamlPath.EMPTY, IndexNavigator.with(index), completionFactory, typeUtil, conf, javaElementLocationProvider);
+	public static ApplicationYamlAssistContext subdocument(YamlDocument doc, int documentSelector, SpringPropertyIndex index, PropertyCompletionFactory completionFactory, TypeUtil typeUtil, RelaxedNameConfig conf, JavaElementLocationProvider javaElementLocationProvider) {
+		return new IndexContext(doc, documentSelector, YamlPath.EMPTY, index, IndexNavigator.with(index.getProperties()), completionFactory, typeUtil, conf, javaElementLocationProvider);
 	}
 
 	private static class TypeContext extends ApplicationYamlAssistContext {
@@ -269,7 +269,7 @@ public abstract class ApplicationYamlAssistContext extends AbstractYamlAssistCon
 					String value = hint.getValue();
 					double score = FuzzyMatcher.matchScore(query, value);
 					if (score!=0 && !value.equals(query)) {
-						DocumentEdits edits = new DocumentEdits(doc.getDocument());
+						DocumentEdits edits = new DocumentEdits(doc.getDocument(), false);
 						int valueStart = offset-query.length();
 						edits.delete(valueStart, offset);
 						if (doc.getChar(valueStart-1)==':') {
@@ -330,7 +330,7 @@ public abstract class ApplicationYamlAssistContext extends AbstractYamlAssistCon
 		@Override
 		public YamlAssistContext traverse(YamlPathSegment s) {
 			if (s.getType()==YamlPathSegmentType.VAL_AT_KEY) {
-				if (TypeUtil.isSequencable(type) || TypeUtil.isMap(type)) {
+				if (typeUtil.isSequencable(type) || typeUtil.isMap(type)) {
 					return contextWith(s, TypeUtil.getDomainType(type));
 				}
 				String key = s.toPropString();
@@ -339,7 +339,7 @@ public abstract class ApplicationYamlAssistContext extends AbstractYamlAssistCon
 					return contextWith(s, TypedProperty.typeOf(subproperties.get(key)));
 				}
 			} else if (s.getType()==YamlPathSegmentType.VAL_AT_INDEX) {
-				if (TypeUtil.isSequencable(type)) {
+				if (typeUtil.isSequencable(type)) {
 					return contextWith(s, TypeUtil.getDomainType(type));
 				}
 			}
@@ -406,9 +406,9 @@ public abstract class ApplicationYamlAssistContext extends AbstractYamlAssistCon
 					String keyValue = contextPath.getLastSegment().toPropString();
 					return PropertiesDefinitionCalculator.getValueDefinitionLocations(javaElementLocationProvider, typeUtil, keyType, keyValue);
 				} else {
-					IType javaType = javaProject.findType(parentType.getErasure());
+					IType javaType = javaProject.getIndex().findType(parentType.getErasure());
 					if (javaType != null) {
-						IMethod method = PropertiesDefinitionCalculator.getPropertyMethod(javaType, propName);
+						IMethod method = PropertiesDefinitionCalculator.getPropertyMethod(typeUtil, javaType, propName);
 						if (method != null) {
 							Location location = javaElementLocationProvider.findLocation(javaProject, method);
 							if (location != null) {
@@ -430,12 +430,14 @@ public abstract class ApplicationYamlAssistContext extends AbstractYamlAssistCon
 
 	private static class IndexContext extends ApplicationYamlAssistContext {
 
-		private IndexNavigator indexNav;
-		PropertyCompletionFactory completionFactory;
+		final private SpringPropertyIndex index;
+		final private IndexNavigator indexNav;
+		final PropertyCompletionFactory completionFactory;
 
-		public IndexContext(YamlDocument doc, int documentSelector, YamlPath contextPath, IndexNavigator indexNav,
+		public IndexContext(YamlDocument doc, int documentSelector, YamlPath contextPath, SpringPropertyIndex index, IndexNavigator indexNav,
 				PropertyCompletionFactory completionFactory, TypeUtil typeUtil, RelaxedNameConfig conf, JavaElementLocationProvider javaElementLocationProvider) {
 			super(doc, documentSelector, contextPath, typeUtil, conf, javaElementLocationProvider);
+			this.index = index;
 			this.indexNav = indexNav;
 			this.completionFactory = completionFactory;
 		}
@@ -446,16 +448,26 @@ public abstract class ApplicationYamlAssistContext extends AbstractYamlAssistCon
 			Collection<Match<PropertyInfo>> matchingProps = indexNav.findMatching(query);
 			if (!matchingProps.isEmpty()) {
 				ArrayList<ICompletionProposal> completions = new ArrayList<ICompletionProposal>();
-				for (Match<PropertyInfo> match : matchingProps) {
-					DocumentEdits edits = createEdits(doc, node, offset, query, match);
-					ScoreableProposal completion = completionFactory.property(
-							doc.getDocument(), edits, match, typeUtil
-					);
-					if (getContextRoot(doc).exists(YamlPath.fromProperty(match.data.getId()))) {
-						completion.deemphasize(DEEMP_EXISTS);
+				matchingProps.parallelStream().forEach(match -> {
+					try {
+						DocumentEdits edits = createEdits(doc, node, offset, query, match);
+						ScoreableProposal completion = completionFactory.property(
+								doc.getDocument(), edits, match, typeUtil
+						);
+						String prefix = indexNav.getPrefix();
+						if (StringUtil.hasText(prefix)) {
+							completion = completion.dropLabelPrefix(prefix.length()+1);
+						}
+						if (getContextRoot(doc).exists(YamlPath.fromProperty(match.data.getId()))) {
+							completion.deemphasize(DEEMP_EXISTS);
+						}
+						synchronized (completions) {
+							completions.add(completion);
+						}
+					} catch (Exception e) {
+						log.error("{}", e);
 					}
-					completions.add(completion);
-				}
+				});
 				return completions;
 			}
 			return Collections.emptyList();
@@ -511,11 +523,11 @@ public abstract class ApplicationYamlAssistContext extends AbstractYamlAssistCon
 					}
 				}
 				if (subIndex.getExtensionCandidate()!=null) {
-					return new IndexContext(getDocument(), documentSelector, contextPath.append(s), subIndex, completionFactory, typeUtil, conf, javaElementLocationProvider);
+					return new IndexContext(getDocument(), documentSelector, contextPath.append(s), index, subIndex, completionFactory, typeUtil, conf, javaElementLocationProvider);
 				} else if (subIndex.getExactMatch()!=null) {
-					IndexContext asIndexContext = new IndexContext(getDocument(), documentSelector, contextPath.append(s), subIndex, completionFactory, typeUtil, conf, javaElementLocationProvider);
+					IndexContext asIndexContext = new IndexContext(getDocument(), documentSelector, contextPath.append(s), index, subIndex, completionFactory, typeUtil, conf, javaElementLocationProvider);
 					PropertyInfo prop = subIndex.getExactMatch();
-					return new TypeContext(asIndexContext, contextPath.append(s), TypeParser.parse(prop.getType()), completionFactory, typeUtil, conf, prop.getHints(typeUtil, true), javaElementLocationProvider);
+					return new TypeContext(asIndexContext, contextPath.append(s), TypeParser.parse(prop.getType()), completionFactory, typeUtil, conf, prop.getHints(typeUtil), javaElementLocationProvider);
 				}
 			}
 			//Unsuported navigation => no context for assist
@@ -551,8 +563,16 @@ public abstract class ApplicationYamlAssistContext extends AbstractYamlAssistCon
 			PropertyInfo prop = indexNav.getExactMatch();
 			if (prop != null) {
 				IJavaProject project = typeUtil.getJavaProject();
-				Collection<IMember> elements = PropertiesDefinitionCalculator.getPropertyJavaElement(project, prop);
+				Collection<IMember> elements = PropertiesDefinitionCalculator.getPropertyJavaElements(typeUtil, project, prop);
 				return PropertiesDefinitionCalculator.getLocations(javaElementLocationProvider, project, elements);
+			} else {
+				//handle finding property source directly by property key
+				Collection<PropertyInfo.PropertySource> sources = index.getGroupSources(indexNav.getPrefix());
+				if (sources!=null && !sources.isEmpty()) {
+					IJavaProject project = typeUtil.getJavaProject();
+					Collection<IMember> elements = PropertiesDefinitionCalculator.getPropertySourceJavaElements(typeUtil, project, sources);
+					return PropertiesDefinitionCalculator.getLocations(javaElementLocationProvider, project, elements);
+				}
 			}
 			return ImmutableList.of();
 		}
@@ -582,7 +602,7 @@ public abstract class ApplicationYamlAssistContext extends AbstractYamlAssistCon
 		return null;
 	}
 
-	public static YamlAssistContext global(YamlDocument doc, final FuzzyMap<PropertyInfo> index, final PropertyCompletionFactory completionFactory, final TypeUtil typeUtil, final RelaxedNameConfig conf, JavaElementLocationProvider javaElementLocationProvider) {
+	public static YamlAssistContext global(YamlDocument doc, final SpringPropertyIndex index, final PropertyCompletionFactory completionFactory, final TypeUtil typeUtil, final RelaxedNameConfig conf, JavaElementLocationProvider javaElementLocationProvider) {
 		return new TopLevelAssistContext() {
 			@Override
 			protected YamlAssistContext getDocumentContext(int documentSelector) {
@@ -613,7 +633,7 @@ public abstract class ApplicationYamlAssistContext extends AbstractYamlAssistCon
 			if (jes != null) {
 				for (IJavaElement je : jes) {
 					if (je instanceof IMember) {
-						SourceLinks sourceLinks = SourceLinkFactory.createSourceLinks((BootJavaLanguageServerComponents)null);
+						SourceLinks sourceLinks = typeUtil.getSourceLinks();
 						IJavaProject project = typeUtil.getJavaProject();
 						return PropertyDocUtils.documentJavaElement(sourceLinks, project, je);
 					}
@@ -628,7 +648,7 @@ public abstract class ApplicationYamlAssistContext extends AbstractYamlAssistCon
 	private static List<IJavaElement> getAllJavaElements(TypeUtil typeUtil, Type parentType, String propName) {
 		if (propName!=null) {
 			Type beanType = parentType;
-			if (TypeUtil.isMap(beanType)) {
+			if (typeUtil.isMap(beanType)) {
 				Type keyType = typeUtil.getKeyType(beanType);
 				if (keyType!=null && typeUtil.isEnum(keyType)) {
 					IField field = typeUtil.getEnumConstant(keyType, propName);

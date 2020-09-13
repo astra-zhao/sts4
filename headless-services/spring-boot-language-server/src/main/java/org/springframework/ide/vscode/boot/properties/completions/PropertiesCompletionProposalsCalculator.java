@@ -1,9 +1,9 @@
 /*******************************************************************************
- * Copyright (c) 2016-2017 Pivotal, Inc.
+ * Copyright (c) 2016, 2019 Pivotal, Inc.
  * All rights reserved. This program and the accompanying materials
  * are made available under the terms of the Eclipse Public License v1.0
  * which accompanies this distribution, and is available at
- * http://www.eclipse.org/legal/epl-v10.html
+ * https://www.eclipse.org/legal/epl-v10.html
  *
  * Contributors:
  *     Pivotal, Inc. - initial API and implementation
@@ -22,7 +22,10 @@ import java.util.ArrayList;
 import java.util.Collection;
 import java.util.Collections;
 import java.util.List;
+import java.util.stream.Stream;
 
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
 import org.springframework.ide.vscode.boot.common.PropertyCompletionFactory;
 import org.springframework.ide.vscode.boot.metadata.PropertyInfo;
 import org.springframework.ide.vscode.boot.metadata.hints.HintProvider;
@@ -39,13 +42,15 @@ import org.springframework.ide.vscode.boot.properties.reconcile.PropertyNavigato
 import org.springframework.ide.vscode.commons.languageserver.completion.DocumentEdits;
 import org.springframework.ide.vscode.commons.languageserver.completion.ICompletionProposal;
 import org.springframework.ide.vscode.commons.languageserver.completion.LazyProposalApplier;
+import org.springframework.ide.vscode.commons.languageserver.completion.TransformedCompletion;
 import org.springframework.ide.vscode.commons.languageserver.util.PrefixFinder;
 import org.springframework.ide.vscode.commons.util.BadLocationException;
 import org.springframework.ide.vscode.commons.util.CollectionUtil;
 import org.springframework.ide.vscode.commons.util.FuzzyMap;
 import org.springframework.ide.vscode.commons.util.FuzzyMap.Match;
 import org.springframework.ide.vscode.commons.util.FuzzyMatcher;
-import org.springframework.ide.vscode.commons.util.Log;
+import org.springframework.ide.vscode.commons.util.Streams;
+import org.springframework.ide.vscode.commons.util.StringUtil;
 import org.springframework.ide.vscode.commons.util.text.DocumentRegion;
 import org.springframework.ide.vscode.commons.util.text.IDocument;
 import org.springframework.ide.vscode.java.properties.antlr.parser.AntlrParser;
@@ -59,7 +64,10 @@ import com.google.common.collect.ImmutableList;
 
 public class PropertiesCompletionProposalsCalculator {
 
+	private static final Logger log = LoggerFactory.getLogger(PropertiesCompletionProposalsCalculator.class);
+
 	private static final PrefixFinder valuePrefixFinder = new PrefixFinder() {
+		@Override
 		protected boolean isPrefixChar(char c) {
 			return isValuePrefixChar(c);
 		}
@@ -67,12 +75,14 @@ public class PropertiesCompletionProposalsCalculator {
 	};
 
 	private static final PrefixFinder fuzzySearchPrefix = new PrefixFinder() {
+		@Override
 		protected boolean isPrefixChar(char c) {
 			return !Character.isWhitespace(c);
 		}
 	};
 
 	private static final PrefixFinder navigationPrefixFinder = new PrefixFinder() {
+		@Override
 		public String getPrefix(IDocument doc, int offset) {
 			String prefix = super.getPrefix(doc, offset);
 			//Check if character before looks like 'navigation'.. otherwise don't
@@ -96,11 +106,12 @@ public class PropertiesCompletionProposalsCalculator {
 			}
 			return 0;
 		}
+		@Override
 		protected boolean isPrefixChar(char c) {
 			return !Character.isWhitespace(c) && c!=']' && c!=']' && c!='.';
 		}
 	};
-	
+
 	private FuzzyMap<PropertyInfo> index;
 	private TypeUtil typeUtil;
 	private PropertyCompletionFactory completionFactory;
@@ -108,7 +119,7 @@ public class PropertiesCompletionProposalsCalculator {
 	private int offset;
 	private boolean preferLowerCaseEnums;
 	private AntlrParser parser;
-	
+
 	public PropertiesCompletionProposalsCalculator(FuzzyMap<PropertyInfo> index, TypeUtil typeUtil, PropertyCompletionFactory completionFactory, IDocument doc, int offset, boolean preferLowerCaseEnums) {
 		this.index = index;
 		this.typeUtil = typeUtil;
@@ -118,7 +129,7 @@ public class PropertiesCompletionProposalsCalculator {
 		this.preferLowerCaseEnums = preferLowerCaseEnums;
 		this.parser = new AntlrParser();
 	}
-	
+
 	/**
 	 * Create completions proposals in the context of a properties text editor.
 	 */
@@ -143,7 +154,7 @@ public class PropertiesCompletionProposalsCalculator {
 					PropertyInfo prop = findLongestValidProperty(index, navPrefix);
 					if (prop!=null) {
 						int regionStart = navOffset-navPrefix.length();
-						Collection<ICompletionProposal> hintProposals = getKeyHintProposals(prop, navOffset);
+						Collection<ICompletionProposal> hintProposals = getKeyHintProposals(prop, regionStart + prop.getId().length());
 						if (CollectionUtil.hasElements(hintProposals)) {
 							return hintProposals;
 						}
@@ -156,13 +167,13 @@ public class PropertiesCompletionProposalsCalculator {
 				}
 			}
 		} catch (Exception e) {
-			Log.log(e);
+			log.error("{}", e);
 		}
 		return Collections.emptyList();
 	}
 
 	private Collection<ICompletionProposal> getKeyHintProposals(PropertyInfo prop, int navOffset) {
-		HintProvider hintProvider = prop.getHints(typeUtil, false);
+		HintProvider hintProvider = prop.getHints(typeUtil);
 		if (!HintProviders.isNull(hintProvider)) {
 			String query = textBetween(doc, navOffset+1, offset);
 			List<TypedProperty> hintProperties = hintProvider.getPropertyHints(query);
@@ -215,7 +226,7 @@ public class PropertiesCompletionProposalsCalculator {
 				//TODO: other cases ']' or '[' ?
 			}
 		} catch (Exception e) {
-			Log.log(e);
+			log.error("{}", e);
 		}
 		return Collections.emptyList();
 	}
@@ -228,7 +239,7 @@ public class PropertiesCompletionProposalsCalculator {
 			if (score!=0) {
 				Type valueType = prop.getType();
 				String postFix = propertyCompletionPostfix(typeUtil, valueType);
-				DocumentEdits edits = new DocumentEdits(doc);
+				DocumentEdits edits = new DocumentEdits(doc, false);
 				edits.delete(navOffset+1, offset);
 				edits.insert(offset, prop.getName()+postFix);
 				proposals.add(
@@ -257,7 +268,7 @@ public class PropertiesCompletionProposalsCalculator {
 		if (type!=null) {
 			if (typeUtil.isAssignableType(type)) {
 				postfix = "=";
-			} else if (TypeUtil.isBracketable(type)) {
+			} else if (typeUtil.isBracketable(type)) {
 				postfix = "[";
 			} else if (typeUtil.isDotable(type)) {
 				postfix = ".";
@@ -271,9 +282,9 @@ public class PropertiesCompletionProposalsCalculator {
 		String query = valuePrefixFinder.getPrefix(doc, offset, valueRegion.getStart());
 		int startOfValue = offset - query.length();
 		EnumCaseMode caseMode = caseMode(query);
-		
+
 		// note: no need to skip whitespace backwards.
-		String propertyName = /*fuzzySearchPrefix.getPrefix(doc, pair.getOffset())*/value.getParent().getKey().decode(); 
+		String propertyName = /*fuzzySearchPrefix.getPrefix(doc, pair.getOffset())*/value.getParent().getKey().decode();
 		// because value partition includes whitespace around the assignment
 		if (propertyName != null) {
 			Collection<StsValueHint> valueCompletions = getValueHints(index, typeUtil, query, propertyName, caseMode);
@@ -283,7 +294,7 @@ public class PropertiesCompletionProposalsCalculator {
 					String valueCandidate = hint.getValue();
 					double score = FuzzyMatcher.matchScore(query, valueCandidate);
 					if (score != 0) {
-						DocumentEdits edits = new DocumentEdits(doc);
+						DocumentEdits edits = new DocumentEdits(doc, false);
 						edits.delete(startOfValue, offset);
 						edits.insert(offset, valueCandidate);
 						String valueTypeName = typeUtil.niceTypeName(getValueType(index, typeUtil, propertyName));
@@ -307,7 +318,7 @@ public class PropertiesCompletionProposalsCalculator {
 			length = doc.get(value.getOffset(), value.getLength()).trim().length();
 		} catch (BadLocationException e) {
 			// ignore
-		} 
+		}
 		return new DocumentRegion(doc, value.getOffset(), value.getOffset() + length);
 	}
 
@@ -330,30 +341,45 @@ public class PropertiesCompletionProposalsCalculator {
 			Collection<Match<PropertyInfo>> matches = findMatches(prefix);
 			if (matches!=null && !matches.isEmpty()) {
 				ArrayList<ICompletionProposal> proposals = new ArrayList<ICompletionProposal>(matches.size());
-				for (final Match<PropertyInfo> match : matches) {
+				matches.parallelStream().forEach(match -> {
 					DocumentEdits docEdits;
 					try {
 						docEdits = LazyProposalApplier.from(() -> {
 								try {
 									Type type = TypeParser.parse(match.data.getType());
-									DocumentEdits edits = new DocumentEdits(doc);
+									DocumentEdits edits = new DocumentEdits(doc, false);
 									edits.delete(offset-prefix.length(), offset);
 									edits.insert(offset, match.data.getId() + propertyCompletionPostfix(typeUtil, type));
 									return edits;
 								} catch (Throwable t) {
-									Log.log(t);
-									return new DocumentEdits(doc);
+									log.error("{}", t);
+									return new DocumentEdits(doc, false);
 								}
 						});
-						proposals.add(completionFactory.property(doc, docEdits, match, typeUtil));
+						synchronized (proposals) {
+							proposals.add(completionFactory.property(doc, docEdits, match, typeUtil));
+						}
 					} catch (Throwable e) {
-						Log.log(e);
+						log.error("{}", e);
 					}
-				}
-				return proposals;
+				});
+				return elideCommonPrefix(prefix, proposals);
 			}
 		}
 		return Collections.emptyList();
 	}
+
+	private Collection<ICompletionProposal> elideCommonPrefix(String basePrefix, ArrayList<ICompletionProposal> proposals) {
+		String prefix = StringUtil.commonPrefix(Stream.concat(Stream.of(basePrefix), proposals.stream().map(ICompletionProposal::getLabel)));
+		int lastDot = prefix.lastIndexOf('.');
+		if (lastDot>=0) {
+			for (int i = 0; i < proposals.size(); i++) {
+				ICompletionProposal p = proposals.get(i);
+				proposals.set(i, p.dropLabelPrefix(lastDot+1));
+			}
+		}
+		return proposals;
+	}
+
 
 }

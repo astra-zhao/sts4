@@ -3,7 +3,7 @@
  * All rights reserved. This program and the accompanying materials
  * are made available under the terms of the Eclipse Public License v1.0
  * which accompanies this distribution, and is available at
- * http://www.eclipse.org/legal/epl-v10.html
+ * https://www.eclipse.org/legal/epl-v10.html
  *
  * Contributors:
  *     Pivotal, Inc. - initial API and implementation
@@ -40,6 +40,7 @@ import org.springframework.ide.vscode.commons.util.ValueParseException;
 import org.springframework.ide.vscode.commons.util.ValueParser;
 import org.springframework.ide.vscode.commons.util.text.DocumentRegion;
 import org.springframework.ide.vscode.commons.util.text.IDocument;
+import org.springframework.ide.vscode.commons.yaml.ast.NodeMergeSupport;
 import org.springframework.ide.vscode.commons.yaml.ast.NodeUtil;
 import org.springframework.ide.vscode.commons.yaml.ast.YamlFileAST;
 import org.springframework.ide.vscode.commons.yaml.path.YamlPath;
@@ -55,6 +56,7 @@ import org.springframework.ide.vscode.commons.yaml.schema.YamlSchema;
 import org.springframework.ide.vscode.commons.yaml.schema.constraints.Constraint;
 import org.springframework.ide.vscode.commons.yaml.snippet.SchemaBasedSnippetGenerator;
 import org.springframework.ide.vscode.commons.yaml.snippet.Snippet;
+import org.yaml.snakeyaml.DumperOptions.FlowStyle;
 import org.yaml.snakeyaml.nodes.MappingNode;
 import org.yaml.snakeyaml.nodes.Node;
 import org.yaml.snakeyaml.nodes.NodeId;
@@ -69,6 +71,7 @@ public class SchemaBasedYamlASTReconciler implements YamlASTReconciler {
 	private final YTypeUtil typeUtil;
 	private final ITypeCollector typeCollector;
 	private final YamlQuickfixes quickfixes;
+	private final NodeMergeSupport nodeMerger;
 
 	private List<Runnable> delayedConstraints = new ArrayList<>();
 		// keeps track of dynamic constraints discovered during reconciler walk
@@ -84,6 +87,7 @@ public class SchemaBasedYamlASTReconciler implements YamlASTReconciler {
 		this.typeCollector = typeCollector;
 		this.typeUtil = schema.getTypeUtil();
 		this.quickfixes = quickfixes;
+		this.nodeMerger = new NodeMergeSupport(problems);
 	}
 
 	@Override
@@ -138,17 +142,17 @@ public class SchemaBasedYamlASTReconciler implements YamlASTReconciler {
 	}
 
 	private void reconcile(YamlFileAST ast, YamlPath path, Node parent, Node node, YType _type) {
-//		IDocument doc = ast.getDocument();
 		if (_type!=null && !skipReconciling(node)) {
 			DynamicSchemaContext schemaContext = new ASTDynamicSchemaContext(ast, path, node);
 			YType type = typeUtil.inferMoreSpecificType(_type, schemaContext);
 			if (typeCollector!=null) {
-				typeCollector.accept(node, type);
+				typeCollector.accept(node, type, path);
 			}
 			checkConstraints(parent, node, type, schemaContext);
 			switch (getNodeId(node)) {
 			case mapping:
 				MappingNode map = (MappingNode) node;
+				nodeMerger.flattenMapping(map);
 				checkForDuplicateKeys(map);
 				if (typeUtil.isMap(type)) {
 					for (NodeTuple entry : map.getValue()) {
@@ -167,7 +171,9 @@ public class SchemaBasedYamlASTReconciler implements YamlASTReconciler {
 						} else {
 							YTypedProperty prop = beanProperties.get(key);
 							if (prop==null) {
-								unknownBeanProperty(keyNode, type, key);
+								if (!NodeUtil.isAnchored(entry)) {
+									unknownBeanProperty(keyNode, type, key);
+								}
 							} else {
 								if (prop.isDeprecated()) {
 									String msg = prop.getDeprecationMessage();
@@ -369,7 +375,7 @@ public class SchemaBasedYamlASTReconciler implements YamlASTReconciler {
 
 	private Node debrace(Node _node) {
 		MappingNode node = NodeUtil.asMapping(_node);
-		if (node!=null && node.getFlowStyle() && node.getValue().size()==1) {
+		if (node!=null && node.getFlowStyle()==FlowStyle.FLOW && node.getValue().size()==1) {
 			NodeTuple entry = node.getValue().get(0);
 			if ("".equals(NodeUtil.asScalar(entry.getValueNode()))) {
 				return entry.getKeyNode();

@@ -3,7 +3,7 @@
  * All rights reserved. This program and the accompanying materials
  * are made available under the terms of the Eclipse Public License v1.0
  * which accompanies this distribution, and is available at
- * http://www.eclipse.org/legal/epl-v10.html
+ * https://www.eclipse.org/legal/epl-v10.html
  *
  * Contributors:
  *     Pivotal, Inc. - initial API and implementation
@@ -20,8 +20,7 @@ import org.springframework.ide.vscode.commons.util.text.IDocument;
 import org.springframework.ide.vscode.commons.yaml.ast.YamlASTProvider;
 import org.springframework.ide.vscode.commons.yaml.ast.YamlFileAST;
 import org.yaml.snakeyaml.error.Mark;
-import org.yaml.snakeyaml.parser.ParserException;
-import org.yaml.snakeyaml.scanner.ScannerException;
+import org.yaml.snakeyaml.error.MarkedYAMLException;
 
 /**
  * @author Kris De Volder
@@ -45,11 +44,7 @@ public abstract class YamlReconcileEngine implements IReconcileEngine {
 			if (reconciler!=null) {
 				reconciler.reconcile(ast);
 			}
-		} catch (ParserException e) {
-			String msg = e.getProblem();
-			Mark mark = e.getProblemMark();
-			problemCollector.accept(syntaxError(msg, mark.getIndex(), 1));
-		} catch (ScannerException e) {
+		} catch (MarkedYAMLException e) {
 			String msg = e.getProblem();
 			Mark mark = e.getProblemMark();
 			problemCollector.accept(syntaxError(msg, mark.getIndex(), 1));

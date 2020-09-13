@@ -3,7 +3,7 @@
  * All rights reserved. This program and the accompanying materials
  * are made available under the terms of the Eclipse Public License v1.0
  * which accompanies this distribution, and is available at
- * http://www.eclipse.org/legal/epl-v10.html
+ * https://www.eclipse.org/legal/epl-v10.html
  *
  * Contributors:
  *     Pivotal, Inc. - initial API and implementation
@@ -25,6 +25,7 @@ import org.eclipse.lsp4j.CompletionItem;
 import org.eclipse.lsp4j.Diagnostic;
 import org.eclipse.lsp4j.DiagnosticSeverity;
 import org.junit.Before;
+import org.junit.Ignore;
 import org.junit.Test;
 import org.junit.runner.RunWith;
 import org.mockito.Mockito;
@@ -35,13 +36,14 @@ import org.springframework.ide.vscode.commons.cloudfoundry.client.CFServiceInsta
 import org.springframework.ide.vscode.commons.cloudfoundry.client.CFStack;
 import org.springframework.ide.vscode.commons.cloudfoundry.client.ClientRequests;
 import org.springframework.ide.vscode.commons.cloudfoundry.client.cftarget.NoTargetsException;
-import org.springframework.ide.vscode.commons.languageserver.util.SimpleLanguageServer;
 import org.springframework.ide.vscode.commons.util.Unicodes;
 import org.springframework.ide.vscode.languageserver.testharness.CodeAction;
 import org.springframework.ide.vscode.languageserver.testharness.Editor;
 import org.springframework.ide.vscode.languageserver.testharness.LanguageServerHarness;
 import org.springframework.ide.vscode.manifest.yaml.bootiful.ManifestLanguageServerTest;
 import org.springframework.test.context.junit4.SpringRunner;
+
+import static org.springframework.ide.vscode.languageserver.testharness.Editor.*;
 
 import com.google.common.collect.ImmutableList;
 
@@ -96,7 +98,6 @@ public class ManifestYamlEditorTest {
 		Editor editor;
 
 		editor = harness.newEditor(
-				"memory: 1G\n" +
 				"aplications:\n" +
 				"  - buildpack: zbuildpack\n" +
 				"    domain: zdomain\n" +
@@ -114,6 +115,7 @@ public class ManifestYamlEditorTest {
 		editor.assertProblems(
 				"name|Unknown property",
 				"buildpeck|Unknown property",
+				"memory|deprecated",
 				"memori|Unknown property"
 		);
 
@@ -131,6 +133,18 @@ public class ManifestYamlEditorTest {
 				"memori|Unknown property",
 				"applications|Unknown property"
 		);
+	}
+	
+	@Test public void zeroInstancesIsFine() throws Exception {
+		//See: https://www.pivotaltracker.com/story/show/165839251
+		Editor editor = harness.newEditor(
+				"applications:\n" +
+				"- name: some-name\n" +
+				"  instances: -1\n" +
+				"- name: some-other-name\n" +
+				"  instances: 0"
+		);
+		editor.assertProblems("-1|Value must be at least 0");
 	}
 
 	@Test
@@ -158,15 +172,45 @@ public class ManifestYamlEditorTest {
 		editor = harness.newEditor(
 				"applications:\n" +
 				"- name: foo\n" +
-				"memory:\n"+
-				"- bad sequence\n" +
-				"buildpack:\n" +
-				"  bad: map\n"
+				"  memory:\n"+
+				"  - bad sequence\n" +
+				"  instances:\n" +
+				"    bad: map\n"
 		);
 		editor.assertProblems(
 				"- bad sequence|Expecting a 'Memory' but found a 'Sequence'",
-				"bad: map|Expecting a 'Buildpack' but found a 'Map'"
+				"bad: map|Expecting a 'Positive Integer' but found a 'Map'"
 		);
+
+		// Add a structural case for `buildpacks` (old `buildpack` was scalar, but `buildpacks` is sequence)
+		editor = harness.newEditor(
+				"applications:\n" +
+				"- name: foo\n" +
+				"  buildpacks: bad scalar\n"
+		);
+		editor.assertProblems(
+				"bad scalar|Expecting a 'Sequence' but found a 'Scalar'"
+				);
+	}
+	
+	@Test
+	public void reconcileWithAnchor() throws Exception {
+		Editor editor = harness.newEditor(
+				"defaults: &defaults\n" + 
+				"  buildpacks:\n" + 
+				"    - staticfile_buildpack\n" + 
+				"  memory: 1G\n" +
+				"  bad: bogus\n" +
+				"\n" + 
+				"\n" + 
+				"applications:\n" + 
+				"- name: bigapp\n" + 
+				"  <<: *defaults\n" + 
+				"- name: smallapp\n" + 
+				"  <<: *defaults\n" + 
+				"  memory: 256M"
+		);
+		editor.assertProblems("bad|Unknown property");
 	}
 
 	@Test
@@ -200,7 +244,7 @@ public class ManifestYamlEditorTest {
 				"  disk_quota: -2048M\n"
 		);
 		editor.assertProblems(
-				"-3|Value must be at least 1",
+				"-3|Value must be at least 0",
 				"-1024M|Negative value is not allowed",
 				"-2048M|Negative value is not allowed"
 		);
@@ -252,6 +296,56 @@ public class ManifestYamlEditorTest {
 				"- <*>"
 		);
 	}
+	
+	@Test 
+	public void toplevelPropertiesDeprecated() throws Exception {
+		Editor editor = harness.newEditor(
+			"applications: []\n" +
+			"inherit: blah\n" +
+			"name: sample-app\n" +
+			"buildpack: some-pack\n" +
+			"command: some-command\n" +
+			"disk_quota: 1G\n" +
+			"domain: some-domain\n" +
+			"domains: []\n" +
+			"env: {}\n" +
+			"host: some-host\n" +
+			"hosts: []\n" +
+			"instances: 12\n" +
+			"memory: 1G\n" +
+			"no-hostname: true\n" +
+			"no-route: true\n" +
+			"path: some-path\n" +
+			"random-route: true\n" +
+			"routes: []\n" +
+			"services: []\n" +
+			"stack: linux\n" +
+			"timeout: 100\n"
+		);
+		editor.ignoreProblem("UnknownDomainProblem");
+		editor.ignoreProblem("UnknownStackProblem");
+		editor.assertProblems(
+				"name|Unknown",
+				"buildpack|deprecated",
+				"command|deprecated", 
+				"disk_quota|deprecated",
+				"domain|deprecated",
+				"domains|deprecated",
+				"env|deprecated",
+				"host|Unknown",
+				"hosts|Unknown",
+				"instances|deprecated",
+				"memory|deprecated",
+				"no-hostname|deprecated",
+				"no-route|deprecated",
+				"path|deprecated",
+				"random-route|deprecated",
+				"routes|Unknown",
+				"services|deprecated",
+				"stack|deprecated",
+				"timeout|deprecated"
+		);
+	}
 
 	@Test
 	public void toplevelCompletions() throws Exception {
@@ -261,54 +355,47 @@ public class ManifestYamlEditorTest {
 				"applications:\n"+
 				"- name: <*>",
 				// ---------------
-				"buildpack: <*>",
-				// ---------------
-				"command: <*>",
-				// ---------------
-				"disk_quota: <*>",
-				// ---------------
-				"domain: <*>",
-				// ---------------
-				"domains:\n"+
-				"- <*>",
-				// ---------------
-				"env:\n"+
-				"  <*>",
-				// ---------------
-				"health-check-http-endpoint: <*>",
-				// ---------------
-				"health-check-type: <*>",
-				// ---------------
-//				"host: <*>",
-				// ---------------
-//				"hosts: \n"+
-//				"  - <*>",
-				// ---------------
 				"inherit: <*>",
-				// ---------------
-				"instances: <*>",
-				// ---------------
-				"memory: <*>",
-				// ---------------
-//				"name: <*>",
-				// ---------------
-				"no-hostname: <*>",
-				// ---------------
-				"no-route: <*>",
-				// ---------------
-				"path: <*>",
-				// ---------------
-				"random-route: <*>",
-				// ---------------
-//				"routes:\n"+
-//				"- route: <*>",
-				// ---------------
-				"services:\n"+
+				// ----------------
+				"buildpack: <*>",
+				//-----------------
+				"buildpacks:\n" + 
 				"- <*>",
-				// ---------------
-				"stack: <*>",
-				// ---------------
-				"timeout: <*>"
+				//-----------------
+				"command: <*>",
+				//-----------------
+				"disk_quota: <*>",
+				//-----------------
+				"domain: <*>", 
+				//-----------------
+				"domains:\n" + 
+				"- <*>",
+				//-----------------
+				"env:\n" + 
+				"  <*>", 
+				//-----------------
+				"health-check-http-endpoint: <*>",
+				//-----------------
+				"health-check-type: <*>", 
+				//-----------------
+				"instances: <*>",
+				//-----------------
+				"memory: <*>", 
+				//-----------------
+				"no-hostname: <*>", 
+				//-----------------
+				"no-route: <*>", 
+				//-----------------
+				"path: <*>",
+				//-----------------
+				"random-route: <*>",
+				//-----------------
+				"services:\n" + 
+				"- <*>", 
+				//-----------------
+				"stack: <*>", 
+				//-----------------
+				"timeout: <*>" 
 		);
 
 		editor = harness.newEditor("ranro<*>");
@@ -334,11 +421,16 @@ public class ManifestYamlEditorTest {
 				"- name: foo\n" +
 				"  <*>"
 		);
-		editor.assertCompletions((c) -> !(c.getLabel().startsWith("- ") || c.getLabel().startsWith(Unicodes.LEFT_ARROW+" ")),
+		editor.assertCompletions(PLAIN_COMPLETION,
 				// ---------------
 				"applications:\n" +
 				"- name: foo\n" +
 				"  buildpack: <*>",
+				// ---------------
+				"applications:\n" +
+				"- name: foo\n" +
+				"  buildpacks:\n"+
+				"  - <*>",
 				// ---------------
 				"applications:\n" +
 				"- name: foo\n" +
@@ -347,6 +439,11 @@ public class ManifestYamlEditorTest {
 				"applications:\n" +
 				"- name: foo\n" +
 				"  disk_quota: <*>",
+				// ---------------
+				"applications:\n" +
+				"- name: foo\n" +
+				"  docker:\n" +
+				"    image: <*>",
 				// ---------------
 				"applications:\n" +
 				"- name: foo\n" +
@@ -514,9 +611,9 @@ public class ManifestYamlEditorTest {
 		editor.assertProblems("health-check-http-endpoint|This has no effect unless `health-check-type` is `http` (but it is currently set to `process`)");
 
 		editor = harness.newEditor(
-				"health-check-type: http\n" +
 				"applications:\n" +
 				"- name: my-app\n" +
+				"  health-check-type: http\n" +
 				"  health-check-http-endpoint: /health"
 		);
 		editor.assertProblems(/*NONE*/);
@@ -538,22 +635,28 @@ public class ManifestYamlEditorTest {
 		editor.assertProblems(/*NONE*/);
 
 		editor = harness.newEditor(
-				"health-check-type: http\n" +
+				"defaults: &defaults\n" +
+				"  health-check-type: http\n" +
 				"applications:\n" +
 				"- name: my-app\n" +
+				"  <<: *defaults\n" +
 				"  health-check-type: process\n" +
 				"  health-check-http-endpoint: /health"
 		);
 		editor.assertProblems("health-check-http-endpoint|This has no effect unless `health-check-type` is `http` (but it is currently set to `process`)");
 
 		editor = harness.newEditor(
-				"health-check-http-endpoint: /health"
+				"applications:\n" +
+				"- name: sample-app\n" +
+				"  health-check-http-endpoint: /health\n"
 		);
 		editor.assertProblems("health-check-http-endpoint|This has no effect unless `health-check-type` is `http` (but it is currently set to `port`)");
 
 		editor = harness.newEditor(
-				"health-check-type: process\n" +
-				"health-check-http-endpoint: /health"
+				"applications:\n" +
+				"- name: sample-app\n" +
+				"  health-check-type: process\n" +
+				"  health-check-http-endpoint: /health"
 		);
 		editor.assertProblems("health-check-http-endpoint|This has no effect unless `health-check-type` is `http` (but it is currently set to `process`)");
 	}
@@ -642,9 +745,9 @@ public class ManifestYamlEditorTest {
 				"applications:\n" +
 				"- name: my-app\n" +
 				"  health-check-type: http\n" +
-				"  health-check-http-endpoint: http://health/additionalpath"
+				"  health-check-http-endpoint: https://health/additionalpath"
 		);
-		problem = editor.assertProblems("http://health/additionalpath|Path contains scheme").get(0);
+		problem = editor.assertProblems("https://health/additionalpath|Path contains scheme").get(0);
 		assertEquals(DiagnosticSeverity.Error, problem.getSeverity());
 
 		editor = harness.newEditor(
@@ -675,24 +778,11 @@ public class ManifestYamlEditorTest {
 			);
 
 		editor = harness.newEditor(
-				"no-hostname: true\n" +
-				"applications:\n" +
-				"- name: my-app\n" +
-				"  routes:\n" +
-				"  - route: myapp.org"
-		);
-		editor.ignoreProblem("UnknownDomainProblem");
-
-		editor.assertProblems(
-				"no-hostname|Property cannot co-exist with property 'routes'",
-				"routes|Property cannot co-exist with properties [no-hostname]"
-		);
-
-		editor = harness.newEditor(
-				"no-hostname: true\n" +
-				"applications:\n" +
-				"- name: my-app\n" +
+				"defaults: &defaults\n" +
 				"  no-hostname: true\n" +
+				"applications:\n" +
+				"- name: my-app\n" +
+				"  <<: *defaults\n" +
 				"  routes:\n" +
 				"  - route: myapp.org"
 		);
@@ -700,14 +790,32 @@ public class ManifestYamlEditorTest {
 
 		editor.assertProblems(
 				"no-hostname|Property cannot co-exist with property 'routes'",
-				"no-hostname|Property cannot co-exist with property 'routes'",
 				"routes|Property cannot co-exist with properties [no-hostname]"
 		);
 
 		editor = harness.newEditor(
-				"no-hostname: true\n" +
+				"defaults: &defaults\n" +
+				"  no-hostname: true\n" +
 				"applications:\n" +
 				"- name: my-app\n" +
+				"  routes:\n" +
+				"  - route: myapp.org\n" +
+				"  <<: *defaults\n" +
+				"  no-hostname: true\n"
+		);
+		editor.ignoreProblem("UnknownDomainProblem");
+
+		editor.assertProblems(
+				"routes|Property cannot co-exist with properties [no-hostname]",
+				"no-hostname|Property cannot co-exist with property 'routes'"
+		);
+
+		editor = harness.newEditor(
+				"defaults: &defaults\n" +
+				"  no-hostname: true\n" +
+				"applications:\n" +
+				"- name: my-app\n" +
+				"  <<: *defaults\n" +
 				"  host: some-app\n" +
 				"  routes:\n" +
 				"  - route: myapp.org"
@@ -721,12 +829,15 @@ public class ManifestYamlEditorTest {
 		);
 
 		editor = harness.newEditor(
-				"no-hostname: true\n" +
+				"defaults: &defaults\n" +
+				"  no-hostname: true\n" +
 				"applications:\n" +
 				"- name: my-app\n" +
+				"  <<: *defaults\n" +
 				"  routes:\n" +
 				"  - route: myapp.org\n" +
 				"- name: app2\n" +
+				"  <<: *defaults\n" +
 				"  routes:\n" +
 				"  - route: my-route.org"
 		);
@@ -756,9 +867,11 @@ public class ManifestYamlEditorTest {
 		);
 
 		editor = harness.newEditor(
-				"random-route: true\n" +
+				"defaults: &defaults\n" +
+				"  random-route: true\n" +
 				"applications:\n" +
 				"- name: moriarty-app\n" +
+				"  <<: *defaults\n" +
 				"  routes:\n" +
 				"  - route: tcp.local2.pcfdev.io:61001"
 		);
@@ -769,9 +882,11 @@ public class ManifestYamlEditorTest {
 		);
 
 		editor = harness.newEditor(
-				"random-route: true\n" +
+				"defaults: &defaults\n" +
+				"  random-route: true\n" +
 				"applications:\n" +
 				"- name: moriarty-app\n" +
+				"  <<: *defaults\n" +
 				"  routes:\n" +
 				"  - route: tcp.local2.pcfdev.io:61001"
 		);
@@ -803,6 +918,38 @@ public class ManifestYamlEditorTest {
 	}
 
 	@Test
+	public void reconcileDeprecatedBuildpackWarning() throws Exception {
+		Editor editor;
+		Diagnostic problem;
+
+		editor = harness.newEditor(
+				"applications:\n" +
+				"- name: my-app\n" +
+				"  buildpack: java_buildpack\n" +
+				"  buildpacks:\n"+
+				"  - java_buidpack\n"
+		);
+
+		editor.assertProblems(/*NONE*/); // no problems right now. But in the future...
+		// TODO: this is what it should really do:
+//		problem = editor.assertProblems(
+//				"buildpack|Deprecated: Use `buildpacks` instead.")
+//				.get(0);
+//		assertEquals(DiagnosticSeverity.Warning, problem.getSeverity());
+	}
+
+	@Test
+	public void reconcileBuildpacks() throws Exception {
+		Editor editor = harness.newEditor(
+				"applications:\n" +
+				"- name: my-app\n" +
+				"  buildpacks:\n" +
+				"  - java_buildpack");
+
+		editor.assertProblems(/* NONE */);
+	}
+
+	@Test
 	public void hoverInfos() throws Exception {
 		Editor editor = harness.newEditor(
 			"memory: 1G\n" +
@@ -810,6 +957,7 @@ public class ManifestYamlEditorTest {
 			"inherit: base-manifest.yml\n"+
 			"applications:\n" +
 			"- buildpack: zbuildpack\n" +
+			"  buildpacks: []\n" +
 			"  domain: zdomain\n" +
 			"  name: foo\n" +
 			"  command: java main.java\n" +
@@ -867,6 +1015,7 @@ public class ManifestYamlEditorTest {
 		editor.assertHoverContains("1G", "Use the `memory` attribute to specify the memory limit");
 		editor.assertHoverContains("inherit", "For example, every child of a parent manifest called `base-manifest.yml` begins like this");
 		editor.assertHoverContains("buildpack", "use the `buildpack` attribute to specify its URL or name");
+		editor.assertHoverContains("buildpacks", "custom buildpack, you can use the `buildpacks` attribute");
 	    editor.assertHoverContains("name", "The `name` attribute is the only required attribute for an application in a manifest file");
 	    editor.assertHoverContains("command", "On the command line, use the `-c` option to specify the custom start command as the following example shows");
 	    editor.assertHoverContains("disk_quota", "Use the `disk_quota` attribute to allocate the disk space for your app instance");
@@ -931,16 +1080,20 @@ public class ManifestYamlEditorTest {
 		Diagnostic p;
 
 		editor = harness.newEditor(
-				"domain: bad.com"
+				"applications:\n" +
+				"- name: sample-app\n" +
+				"  domain: bad.com"
 		);
 		p = editor.assertProblems("bad.com|unknown 'Domain'. Valid values are: [one.com, two.com]").get(0);
 		assertEquals(DiagnosticSeverity.Warning, p.getSeverity());
 
 		editor= harness.newEditor(
-				"domains:\n" +
-				"- one.com\n" +
-				"- bad.com\n" +
-				"- two.com"
+				"applications:\n" +
+				"- name: sample-app\n" +
+				"  domains:\n" +
+				"  - one.com\n" +
+				"  - bad.com\n" +
+				"  - two.com"
 		);
 		editor.assertProblems("bad.com|unknown 'Domain'. Valid values are: [one.com, two.com]");
 	}
@@ -952,7 +1105,9 @@ public class ManifestYamlEditorTest {
 		when(cloudfoundry.client.getStacks()).thenReturn(stacks);
 		{
 			Editor editor = harness.newEditor(
-					"stack: android<*>"
+					"applications:\n" +
+					"- name: foo\n" +
+					"  stack: android<*>"
 			);
 			Diagnostic p = editor.assertProblems("android|'android' is an unknown 'Stack'. Valid values are: [linux, windows]").get(0);
 			assertEquals(DiagnosticSeverity.Warning, p.getSeverity());
@@ -960,7 +1115,9 @@ public class ManifestYamlEditorTest {
 
 		{
 			Editor editor = harness.newEditor(
-					"stack: <*>"
+					"applications:\n" +
+					"- name: foo\n" +
+					"  stack: <*>"
 			);
 			Diagnostic p = editor.assertProblems("|'Stack' cannot be blank").get(0);
 			assertEquals(DiagnosticSeverity.Error, p.getSeverity());
@@ -981,7 +1138,8 @@ public class ManifestYamlEditorTest {
 		Editor editor = harness.newEditor(
 				"#comment\n" +
 				"applications:\n" +
-				"- buildpack: zbuildpack\n" +
+				"- buildpacks:\n" +
+				"  - zbuildpack\n" +
 				"  name: foo\n" +
 				"  domains:\n" +
 				"  - pivotal.io\n" +
@@ -1107,7 +1265,8 @@ public class ManifestYamlEditorTest {
 		editor = harness.newEditor(
 				"applications:\n" +
 				"- name: foo\n" +
-				"  buildpack: bad-buildpack\n" +
+				"  buildpacks:\n  " +
+				"  - bad-buildpack\n" +
 				"  stack: blah\n" +
 				"  domain: something-domain.com\n" +
 				"  services:\n" +
@@ -1119,7 +1278,8 @@ public class ManifestYamlEditorTest {
 		editor = harness.newEditor(
 				"applications:\n" +
 				"- name: foo-foo\n" +
-				"  buildpack: java_buildpack\n" +
+				"  buildpacks:\n  " +
+				"  - bad-buildpack\n" +
 				"  routes:\n" +
 				"  - route: foo.blah/fooo\n"
 		);
@@ -1133,7 +1293,8 @@ public class ManifestYamlEditorTest {
 		Editor editor = harness.newEditor(
 				"applications:\n" +
 				"- name: foo\n" +
-				"  buildpack: bad-buildpack\n" +
+				"  buildpacks: \n" +
+				"  - bad-buildpack\n" +
 				"  services:\n" +
 				"  - bad-service\n" +
 				"  bogus: bad" //a token error to make sure reconciler is actually running!
@@ -1143,7 +1304,8 @@ public class ManifestYamlEditorTest {
 		editor = harness.newEditor(
 				"applications:\n" +
 				"- name: foo-foo\n" +
-				"  buildpack: java_buildpack\n" +
+				"  buildpacks: \n" +
+				"  - bad-buildpack\n" +
 				"  routes:\n" +
 				"  - route: foo.blah/fooo\n"
 		);
@@ -1159,7 +1321,8 @@ public class ManifestYamlEditorTest {
 		Editor editor = harness.newEditor(
 				"applications:\n" +
 				"- name: foo\n" +
-				"  buildpack: bad-buildpack\n" +
+				"  buildpacks:\n  " +
+				"  - bad-buildpack\n" +
 				"  stack: bad-stack\n" +
 				"  services:\n" +
 				"  - bad-service\n" +
@@ -1338,13 +1501,27 @@ public class ManifestYamlEditorTest {
 	}
 
 	@Test
-	public void buildpackContentAssist() throws Exception {
+	public void deprecatedBuildpackContentAssist() throws Exception {
 		ClientRequests cfClient = cloudfoundry.client;
 		CFBuildpack buildPack = Mockito.mock(CFBuildpack.class);
 		when(buildPack.getName()).thenReturn("java_buildpack");
 		when(cfClient.getBuildpacks()).thenReturn(ImmutableList.of(buildPack));
 
 		CompletionItem completion = assertCompletions("buildpack: <*>", "buildpack: java_buildpack<*>").get(0);
+		assertEquals("java_buildpack", completion.getLabel());
+		assertDocumentation("an-org : a-space [test.io]", completion);
+	}
+
+	@Test
+	public void buildpacksContentAssist() throws Exception {
+		// Test for newer `buildpacks` property
+		// See: PT 162499688
+		ClientRequests cfClient = cloudfoundry.client;
+		CFBuildpack buildPack = Mockito.mock(CFBuildpack.class);
+		when(buildPack.getName()).thenReturn("java_buildpack");
+		when(cfClient.getBuildpacks()).thenReturn(ImmutableList.of(buildPack));
+
+		CompletionItem completion = assertCompletions("buildpacks:\n  - <*>", "buildpacks:\n  - java_buildpack<*>").get(0);
 		assertEquals("java_buildpack", completion.getLabel());
 		assertDocumentation("an-org : a-space [test.io]", completion);
 	}
@@ -1402,9 +1579,9 @@ public class ManifestYamlEditorTest {
 				"applications:\n" +
 				"- name: foo\n" +
 				"  routes:\n" +
-				"  - route: http://springsource.org\n");
-		editor.assertProblems("http://springsource.org|is not a valid 'Route'");
-		Diagnostic problem = editor.assertProblem("http://springsource.org");
+				"  - route: https://springsource.org\n");
+		editor.assertProblems("https://springsource.org|is not a valid 'Route'");
+		Diagnostic problem = editor.assertProblem("https://springsource.org");
 		assertEquals(DiagnosticSeverity.Error, problem.getSeverity());
 
 		editor = harness.newEditor(
@@ -1615,7 +1792,7 @@ public class ManifestYamlEditorTest {
 		);
 	}
 
-	@Test public void gotoSymbolInPipeline() throws Exception {
+	@Test public void gotoSymbolInDocument() throws Exception {
 		Editor editor = harness.newEditor(
 				"applications:\n" +
 				"- name: my-app\n" +
@@ -1807,7 +1984,80 @@ public class ManifestYamlEditorTest {
 
 	}
 
+	@Test
+	public void dockerAttributesValidation() throws Exception {
+		Editor editor;
+		
+		editor = harness.newEditor(
+				"applications:\n" +
+				"- name: my-app\n" +
+				"  docker:\n" +
+				"    image: docker-image-repository/docker-image-name\n" +
+				"    bogus: bad"
+		);
+		editor.assertProblems("bogus|Unknown");
 
+		editor = harness.newEditor(
+				"applications:\n" +
+				"- name: my-app\n" +
+				"  docker:\n" +
+				"    username: myself\n"
+		);
+		editor.assertProblems(
+				"docker|'image' is required"
+		);
+		
+		editor = harness.newEditor(
+				"applications:\n" +
+				"- name: my-app\n" +
+				"  buildpacks:\n" +
+				"  - java-buildpack\n" +
+				"  docker:\n" +
+				"    image: somewhere/someimage\n"
+		);
+		editor.assertProblems(
+				"buildpacks|Only one of 'docker' and 'buildpacks'",
+				"docker|Only one of 'docker' and 'buildpacks'"
+		);
+
+		editor = harness.newEditor(
+				"applications:\n" +
+				"- name: my-app\n" +
+				"  buildpack: java-buildpack\n" +
+				"  docker:\n" +
+				"    image: somewhere/someimage\n"
+		);
+		editor.assertProblems(
+				"buildpack|Only one of 'docker' and 'buildpack'",
+				"docker|Only one of 'docker' and 'buildpack'"
+		);
+		
+		editor = harness.newEditor(
+				"applications:\n" +
+				"- name: my-app\n" +
+				"  path: /somehere/in/filesystem\n" +
+				"  docker:\n" +
+				"    image: somewhere/someimage\n"
+		);
+		editor.assertProblems(
+				"path|Only one of 'docker' and 'path'",
+				"docker|Only one of 'docker' and 'path'"
+		);
+	}
+
+	@Test
+	public void dockerAttributesHovers() throws Exception {
+		Editor editor = harness.newEditor(
+				"applications:\n" +
+				"- name: my-app\n" +
+				"  docker:\n" +
+				"    image: docker-image-repository/docker-image-name\n" +
+				"    username: myself"
+		);
+		editor.assertHoverContains("docker", "If your app is contained in a Docker image");
+		editor.assertHoverContains("image", "Docker image");
+		editor.assertHoverContains("username", "If your app is contained in a Docker image");
+	}
 
 	//////////////////////////////////////////////////////////////////////////////
 

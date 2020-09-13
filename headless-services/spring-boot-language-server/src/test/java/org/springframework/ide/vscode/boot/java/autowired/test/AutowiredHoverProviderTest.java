@@ -1,9 +1,9 @@
 /*******************************************************************************
- * Copyright (c) 2017, 2018 Pivotal, Inc.
+ * Copyright (c) 2017, 2019 Pivotal, Inc.
  * All rights reserved. This program and the accompanying materials
  * are made available under the terms of the Eclipse Public License v1.0
  * which accompanies this distribution, and is available at
- * http://www.eclipse.org/legal/epl-v10.html
+ * https://www.eclipse.org/legal/epl-v10.html
  *
  * Contributors:
  *     Pivotal, Inc. - initial API and implementation
@@ -16,6 +16,7 @@ import java.nio.file.Paths;
 import java.util.stream.Collectors;
 import java.util.stream.Stream;
 
+import org.junit.After;
 import org.junit.Before;
 import org.junit.Test;
 import org.junit.runner.RunWith;
@@ -23,16 +24,18 @@ import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.context.annotation.Import;
 import org.springframework.ide.vscode.boot.bootiful.BootLanguageServerTest;
 import org.springframework.ide.vscode.boot.bootiful.HoverTestConf;
-import org.springframework.ide.vscode.commons.boot.app.cli.livebean.LiveBean;
-import org.springframework.ide.vscode.commons.boot.app.cli.livebean.LiveBeansModel;
+import org.springframework.ide.vscode.boot.java.livehover.v2.LiveBean;
+import org.springframework.ide.vscode.boot.java.livehover.v2.LiveBeansModel;
+import org.springframework.ide.vscode.boot.java.livehover.v2.SpringProcessLiveData;
+import org.springframework.ide.vscode.boot.java.livehover.v2.SpringProcessLiveDataProvider;
 import org.springframework.ide.vscode.commons.maven.java.MavenJavaProject;
 import org.springframework.ide.vscode.commons.util.text.LanguageId;
 import org.springframework.ide.vscode.languageserver.testharness.Editor;
 import org.springframework.ide.vscode.project.harness.BootLanguageServerHarness;
-import org.springframework.ide.vscode.project.harness.MockRunningAppProvider;
 import org.springframework.ide.vscode.project.harness.ProjectsHarness;
 import org.springframework.ide.vscode.project.harness.ProjectsHarness.CustomizableProjectContent;
 import org.springframework.ide.vscode.project.harness.ProjectsHarness.ProjectCustomizer;
+import org.springframework.ide.vscode.project.harness.SpringProcessLiveDataBuilder;
 import org.springframework.test.context.junit4.SpringRunner;
 
 /**
@@ -132,19 +135,22 @@ public class AutowiredHoverProviderTest {
 		p.createType("com.example.FooImplementation", FOO_IMPL_CONTENTS);
 	};
 
-	@Autowired
-	private BootLanguageServerHarness harness;
+	@Autowired private BootLanguageServerHarness harness;
+	@Autowired private SpringProcessLiveDataProvider liveDataProvider;
+	
 	private ProjectsHarness projects = ProjectsHarness.INSTANCE;
-
-	@Autowired
-	private MockRunningAppProvider mockAppProvider;
 
 	@Before
 	public void setup() throws Exception {
 		MavenJavaProject jp =  projects.mavenProject("empty-boot-15-web-app", FOO_INTERFACE);
-		assertTrue(jp.findType("com.example.Foo").exists());
+		assertTrue(jp.getIndex().findType("com.example.Foo").exists());
 		harness.useProject(jp);
 		harness.intialize(null);
+	}
+	
+	@After
+	public void tearDown() throws Exception {
+		liveDataProvider.remove("processkey");
 	}
 
 	@Test
@@ -163,13 +169,14 @@ public class AutowiredHoverProviderTest {
 						.build()
 				)
 				.build();
-		mockAppProvider.builder()
-			.isSpringBootApp(true)
-			.processId("111")
-			.processName("the-app")
-			.beans(beans)
-			.build();
-
+		
+		SpringProcessLiveData liveData = new SpringProcessLiveDataBuilder()
+				.processID("111")
+				.processName("the-app")
+				.beans(beans)
+				.build();
+		liveDataProvider.add("processkey", liveData);
+		
 		Editor editor = harness.newEditor(LanguageId.JAVA,
 				"package com.example;\n" +
 				"\n" +
@@ -218,13 +225,14 @@ public class AutowiredHoverProviderTest {
 						.build()
 				)
 				.build();
-		mockAppProvider.builder()
-			.isSpringBootApp(true)
-			.processId("111")
-			.processName("the-app")
-			.beans(beans)
-			.build();
-
+		
+		SpringProcessLiveData liveData = new SpringProcessLiveDataBuilder()
+				.processID("111")
+				.processName("the-app")
+				.beans(beans)
+				.build();
+		liveDataProvider.add("processkey", liveData);
+		
 		Editor editor = harness.newEditor(LanguageId.JAVA,
 				"package com.example;\n" +
 				"\n" +
@@ -292,13 +300,14 @@ public class AutowiredHoverProviderTest {
 						.build()
 				)
 				.build();
-		mockAppProvider.builder()
-			.isSpringBootApp(true)
-			.processId("111")
-			.processName("unrelated-app")
-			.beans(beans)
-			.build();
 
+		SpringProcessLiveData liveData = new SpringProcessLiveDataBuilder()
+				.processID("111")
+				.processName("unrelated-app")
+				.beans(beans)
+				.build();
+		liveDataProvider.add("processkey", liveData);
+		
 		Editor editor = harness.newEditor(LanguageId.JAVA,
 				"package com.example;\n" +
 				"\n" +
@@ -337,13 +346,14 @@ public class AutowiredHoverProviderTest {
 						.build()
 				)
 				.build();
-		mockAppProvider.builder()
-			.isSpringBootApp(true)
-			.processId("111")
-			.processName("the-app")
-			.beans(beans)
-			.build();
 
+		SpringProcessLiveData liveData = new SpringProcessLiveDataBuilder()
+				.processID("111")
+				.processName("the-app")
+				.beans(beans)
+				.build();
+		liveDataProvider.add("processkey", liveData);
+		
 		Editor editor = harness.newEditor(LanguageId.JAVA,
 				"package com.example;\n" +
 				"\n" +
@@ -383,13 +393,14 @@ public class AutowiredHoverProviderTest {
 						.build()
 				)
 				.build();
-		mockAppProvider.builder()
-			.isSpringBootApp(true)
-			.processId("111")
-			.processName("the-app")
-			.beans(beans)
-			.build();
 
+		SpringProcessLiveData liveData = new SpringProcessLiveDataBuilder()
+				.processID("111")
+				.processName("the-app")
+				.beans(beans)
+				.build();
+		liveDataProvider.add("processkey", liveData);
+		
 
 		Editor editor = harness.newEditor(LanguageId.JAVA, FOO_IMPL_CONTENTS);
 		editor.assertHighlights("@Component", "@Autowired", "@Autowired");
@@ -418,13 +429,14 @@ public class AutowiredHoverProviderTest {
 						.build()
 				)
 				.build();
-		mockAppProvider.builder()
-			.isSpringBootApp(true)
-			.processId("111")
-			.processName("the-app")
-			.beans(beans)
-			.build();
 
+		SpringProcessLiveData liveData = new SpringProcessLiveDataBuilder()
+				.processID("111")
+				.processName("the-app")
+				.beans(beans)
+				.build();
+		liveDataProvider.add("processkey", liveData);
+		
 
 		Editor editor = harness.newEditor(LanguageId.JAVA,
 				"package com.example;\n" +
@@ -482,13 +494,14 @@ public class AutowiredHoverProviderTest {
 						.build()
 				)
 				.build();
-		mockAppProvider.builder()
-			.isSpringBootApp(true)
-			.processId("111")
-			.processName("the-app")
-			.beans(beans)
-			.build();
 
+		SpringProcessLiveData liveData = new SpringProcessLiveDataBuilder()
+				.processID("111")
+				.processName("the-app")
+				.beans(beans)
+				.build();
+		liveDataProvider.add("processkey", liveData);
+		
 		Editor editor = harness.newEditor(LanguageId.JAVA,
 				"package com.example;\n" +
 				"\n" +
@@ -507,7 +520,7 @@ public class AutowiredHoverProviderTest {
 				"}\n"
 		);
 
-		editor.assertHighlights("@Component", "SomeComponent");
+		editor.assertHighlights("@Component", "SomeComponent", "depA", "depB");
 
 		editor.assertTrimmedHover("SomeComponent", 2,
 				"**&#8592; `DependencyA` `DependencyB`**\n" +
@@ -519,6 +532,25 @@ public class AutowiredHoverProviderTest {
 				"Bean id: `someComponent`  \n" +
 				"Process [PID=111, name=`the-app`]\n"
 		);
+
+		editor.assertTrimmedHover("depA", 2,
+				"**&#8592; `DependencyA`**\n" +
+				"- Bean: `dependencyA`  \n" +
+				"  Type: `com.example.DependencyA`\n" +
+				"  \n" +
+				"Bean id: `someComponent`  \n" +
+				"Process [PID=111, name=`the-app`]\n"
+		);
+
+		editor.assertTrimmedHover("depB", 2,
+				"**&#8592; `DependencyB`**\n" +
+				"- Bean: `dependencyB`  \n" +
+				"  Type: `com.example.DependencyB`\n" +
+				"  \n" +
+				"Bean id: `someComponent`  \n" +
+				"Process [PID=111, name=`the-app`]\n"
+		);
+
 	}
 
 	@Test
@@ -541,13 +573,14 @@ public class AutowiredHoverProviderTest {
 						.build()
 				)
 				.build();
-		mockAppProvider.builder()
-			.isSpringBootApp(true)
-			.processId("111")
-			.processName("the-app")
-			.beans(beans)
-			.build();
 
+		SpringProcessLiveData liveData = new SpringProcessLiveDataBuilder()
+				.processID("111")
+				.processName("the-app")
+				.beans(beans)
+				.build();
+		liveDataProvider.add("processkey", liveData);
+		
 		Editor editor = harness.newEditor(LanguageId.JAVA,
 				"package com.example;\n" +
 				"\n" +
@@ -590,13 +623,14 @@ public class AutowiredHoverProviderTest {
 						.build()
 				)
 				.build();
-		mockAppProvider.builder()
-			.isSpringBootApp(true)
-			.processId("111")
-			.processName("the-app")
-			.beans(beans)
-			.build();
 
+		SpringProcessLiveData liveData = new SpringProcessLiveDataBuilder()
+				.processID("111")
+				.processName("the-app")
+				.beans(beans)
+				.build();
+		liveDataProvider.add("processkey", liveData);
+		
 		Editor editor = harness.newEditor(LanguageId.JAVA,
 				"package com.example;\n" +
 				"\n" +
@@ -644,13 +678,14 @@ public class AutowiredHoverProviderTest {
 						.build()
 				)
 				.build();
-		mockAppProvider.builder()
-			.isSpringBootApp(true)
-			.processId("111")
-			.processName("the-app")
-			.beans(beans)
-			.build();
 
+		SpringProcessLiveData liveData = new SpringProcessLiveDataBuilder()
+				.processID("111")
+				.processName("the-app")
+				.beans(beans)
+				.build();
+		liveDataProvider.add("processkey", liveData);
+		
 		Editor editor = harness.newEditor(LanguageId.JAVA,
 				"package com.example;\n" +
 				"\n" +
@@ -699,13 +734,14 @@ public class AutowiredHoverProviderTest {
 						.build()
 				)
 				.build();
-		mockAppProvider.builder()
-			.isSpringBootApp(true)
-			.processId("111")
-			.processName("the-app")
-			.beans(beans)
-			.build();
 
+		SpringProcessLiveData liveData = new SpringProcessLiveDataBuilder()
+				.processID("111")
+				.processName("the-app")
+				.beans(beans)
+				.build();
+		liveDataProvider.add("processkey", liveData);
+		
 		Editor editor = harness.newEditor(LanguageId.JAVA,
 				"package com.example;\n" +
 				"\n" +
@@ -718,7 +754,7 @@ public class AutowiredHoverProviderTest {
 				"   private IDependency a;\n" +
 				"   private IDependency b;\n" +
 				"\n" +
-				"	public SomeComponent(@Qualifier(\"dependencyA\") IDependency a, @Qualifier(\"dependencyB\") IDependency b) {\n" +
+				"	public SomeComponent(@Qualifier(\"dependencyA\") IDependency depA, @Qualifier(\"dependencyB\") IDependency depB) {\n" +
 				"       this.a = a;\n" +
 				"       this.b = b;\n" +
 				"	}\n" +
@@ -726,7 +762,7 @@ public class AutowiredHoverProviderTest {
 				"}\n"
 		);
 
-		editor.assertHighlights("@Component", "SomeComponent");
+		editor.assertHighlights("@Component", "SomeComponent", "depA", "depB");
 		editor.assertTrimmedHover("SomeComponent", 2,
 				"**&#8592; `DependencyA` `DependencyB`**\n" +
 				"- Bean: `dependencyA`  \n" +
@@ -737,6 +773,25 @@ public class AutowiredHoverProviderTest {
 				"Bean id: `someComponent`  \n" +
 				"Process [PID=111, name=`the-app`]\n"
 		);
+
+		editor.assertTrimmedHover("depA",
+				"**&#8592; `DependencyA`**\n" +
+				"- Bean: `dependencyA`  \n" +
+				"  Type: `com.example.DependencyA`\n" +
+				"  \n" +
+				"Bean id: `someComponent`  \n" +
+				"Process [PID=111, name=`the-app`]\n"
+		);
+
+		editor.assertTrimmedHover("depB",
+				"**&#8592; `DependencyB`**\n" +
+				"- Bean: `dependencyB`  \n" +
+				"  Type: `com.example.DependencyB`\n" +
+				"  \n" +
+				"Bean id: `someComponent`  \n" +
+				"Process [PID=111, name=`the-app`]\n"
+		);
+
 	}
 
 	@Test
@@ -754,13 +809,14 @@ public class AutowiredHoverProviderTest {
 						.build()
 				)
 				.build();
-		mockAppProvider.builder()
-			.isSpringBootApp(true)
-			.processId("111")
-			.processName("the-app")
-			.beans(beans)
-			.build();
 
+		SpringProcessLiveData liveData = new SpringProcessLiveDataBuilder()
+				.processID("111")
+				.processName("the-app")
+				.beans(beans)
+				.build();
+		liveDataProvider.add("processkey", liveData);
+		
 		Editor editor = harness.newEditor(LanguageId.JAVA,
 				"package com.example;\n" +
 				"\n" +
@@ -807,13 +863,14 @@ public class AutowiredHoverProviderTest {
 						.build()
 				)
 				.build();
-		mockAppProvider.builder()
-			.isSpringBootApp(true)
-			.processId("111")
-			.processName("the-app")
-			.beans(beans)
-			.build();
 
+		SpringProcessLiveData liveData = new SpringProcessLiveDataBuilder()
+				.processID("111")
+				.processName("the-app")
+				.beans(beans)
+				.build();
+		liveDataProvider.add("processkey", liveData);
+		
 		Editor editor = harness.newEditor(LanguageId.JAVA,
 				"package com.example;\n" +
 				"\n" +
@@ -853,13 +910,14 @@ public class AutowiredHoverProviderTest {
 						.build()
 				)
 				.build();
-		mockAppProvider.builder()
-			.isSpringBootApp(true)
-			.processId("111")
-			.processName("the-app")
-			.beans(beans)
-			.build();
 
+		SpringProcessLiveData liveData = new SpringProcessLiveDataBuilder()
+				.processID("111")
+				.processName("the-app")
+				.beans(beans)
+				.build();
+		liveDataProvider.add("processkey", liveData);
+		
 		Editor editor = harness.newEditor(LanguageId.JAVA,
 				"package com.example;\n" +
 				"\n" +
@@ -899,13 +957,14 @@ public class AutowiredHoverProviderTest {
 						.build()
 				)
 				.build();
-		mockAppProvider.builder()
-			.isSpringBootApp(true)
-			.processId("111")
-			.processName("the-app")
-			.beans(beans)
-			.build();
 
+		SpringProcessLiveData liveData = new SpringProcessLiveDataBuilder()
+				.processID("111")
+				.processName("the-app")
+				.beans(beans)
+				.build();
+		liveDataProvider.add("processkey", liveData);
+		
 		Editor editor = harness.newEditor(LanguageId.JAVA,
 				"package com.example;\n" +
 				"\n" +
@@ -951,13 +1010,14 @@ public class AutowiredHoverProviderTest {
 						.build()
 				)
 				.build();
-		mockAppProvider.builder()
-			.isSpringBootApp(true)
-			.processId("111")
-			.processName("the-app")
-			.beans(beans)
-			.build();
 
+		SpringProcessLiveData liveData = new SpringProcessLiveDataBuilder()
+				.processID("111")
+				.processName("the-app")
+				.beans(beans)
+				.build();
+		liveDataProvider.add("processkey", liveData);
+		
 		Editor editor = harness.newEditor(LanguageId.JAVA,
 				"package com.example;\n" +
 				"\n" +
@@ -1005,13 +1065,14 @@ public class AutowiredHoverProviderTest {
 						.build()
 				)
 				.build();
-		mockAppProvider.builder()
-			.isSpringBootApp(true)
-			.processId("111")
-			.processName("the-app")
-			.beans(beans)
-			.build();
 
+		SpringProcessLiveData liveData = new SpringProcessLiveDataBuilder()
+				.processID("111")
+				.processName("the-app")
+				.beans(beans)
+				.build();
+		liveDataProvider.add("processkey", liveData);
+		
 		Editor editor = harness.newEditor(LanguageId.JAVA,
 				"package com.example;\n" +
 				"\n" +
@@ -1052,13 +1113,14 @@ public class AutowiredHoverProviderTest {
 						.build()
 				)
 				.build();
-		mockAppProvider.builder()
-			.isSpringBootApp(true)
-			.processId("111")
-			.processName("the-app")
-			.beans(beans)
-			.build();
 
+		SpringProcessLiveData liveData = new SpringProcessLiveDataBuilder()
+				.processID("111")
+				.processName("the-app")
+				.beans(beans)
+				.build();
+		liveDataProvider.add("processkey", liveData);
+		
 		Editor editor = harness.newEditor(LanguageId.JAVA,
 				"package com.example;\n" +
 				"\n" +
@@ -1099,13 +1161,14 @@ public class AutowiredHoverProviderTest {
 						.build()
 				)
 				.build();
-		mockAppProvider.builder()
-			.isSpringBootApp(true)
-			.processId("111")
-			.processName("the-app")
-			.beans(beans)
-			.build();
 
+		SpringProcessLiveData liveData = new SpringProcessLiveDataBuilder()
+				.processID("111")
+				.processName("the-app")
+				.beans(beans)
+				.build();
+		liveDataProvider.add("processkey", liveData);
+		
 		Editor editor = harness.newEditor(LanguageId.JAVA,
 				"package com.example;\n" +
 				"\n" +
@@ -1152,13 +1215,14 @@ public class AutowiredHoverProviderTest {
 						.build()
 				)
 				.build();
-		mockAppProvider.builder()
-			.isSpringBootApp(true)
-			.processId("111")
-			.processName("the-app")
-			.beans(beans)
-			.build();
 
+		SpringProcessLiveData liveData = new SpringProcessLiveDataBuilder()
+				.processID("111")
+				.processName("the-app")
+				.beans(beans)
+				.build();
+		liveDataProvider.add("processkey", liveData);
+		
 		Editor editor = harness.newEditor(LanguageId.JAVA,
 				"package com.example;\n" +
 				"\n" +
@@ -1208,13 +1272,14 @@ public class AutowiredHoverProviderTest {
 						.build()
 				)
 				.build();
-		mockAppProvider.builder()
-			.isSpringBootApp(true)
-			.processId("111")
-			.processName("the-app")
-			.beans(beans)
-			.build();
 
+		SpringProcessLiveData liveData = new SpringProcessLiveDataBuilder()
+				.processID("111")
+				.processName("the-app")
+				.beans(beans)
+				.build();
+		liveDataProvider.add("processkey", liveData);
+		
 		Editor editor = harness.newEditor(LanguageId.JAVA,
 				"package com.example;\n" +
 				"\n" +
@@ -1261,13 +1326,14 @@ public class AutowiredHoverProviderTest {
 						.build()
 				)
 				.build();
-		mockAppProvider.builder()
-			.isSpringBootApp(true)
-			.processId("111")
-			.processName("the-app")
-			.beans(beans)
-			.build();
 
+		SpringProcessLiveData liveData = new SpringProcessLiveDataBuilder()
+				.processID("111")
+				.processName("the-app")
+				.beans(beans)
+				.build();
+		liveDataProvider.add("processkey", liveData);
+		
 		Editor editor = harness.newEditor(LanguageId.JAVA,
 				"package com.example;\n" +
 				"\n" +
@@ -1305,13 +1371,14 @@ public class AutowiredHoverProviderTest {
 						.build()
 				)
 				.build();
-		mockAppProvider.builder()
-			.isSpringBootApp(true)
-			.processId("111")
-			.processName("the-app")
-			.beans(beans)
-			.build();
 
+		SpringProcessLiveData liveData = new SpringProcessLiveDataBuilder()
+				.processID("111")
+				.processName("the-app")
+				.beans(beans)
+				.build();
+		liveDataProvider.add("processkey", liveData);
+		
 		Editor editor = harness.newEditor(LanguageId.JAVA,
 				"package com.example;\n" +
 				"\n" +

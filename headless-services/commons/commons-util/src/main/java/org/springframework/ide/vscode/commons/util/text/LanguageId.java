@@ -1,9 +1,9 @@
 /*******************************************************************************
- * Copyright (c) 2017 Pivotal, Inc.
+ * Copyright (c) 2017, 2019 Pivotal, Inc.
  * All rights reserved. This program and the accompanying materials
  * are made available under the terms of the Eclipse Public License v1.0
  * which accompanies this distribution, and is available at
- * http://www.eclipse.org/legal/epl-v10.html
+ * https://www.eclipse.org/legal/epl-v10.html
  *
  * Contributors:
  *     Pivotal, Inc. - initial API and implementation
@@ -23,7 +23,9 @@ public class LanguageId {
 	public static final LanguageId CONCOURSE_PIPELINE = of("concourse-pipeline-yaml");
 	public static final LanguageId CF_MANIFEST = of("manifest-yaml");
 	public static final LanguageId JAVA = of("java");
+	public static final LanguageId CLASS = of("class");
 	public static final LanguageId YAML = of("yaml");
+	public static final LanguageId XML = of("xml");
 	
 	public static final LanguageId BOSH_DEPLOYMENT = of("bosh-deployment-manifest");
 	public static final LanguageId BOSH_CLOUD_CONFIG = of("bosh-cloud-config");

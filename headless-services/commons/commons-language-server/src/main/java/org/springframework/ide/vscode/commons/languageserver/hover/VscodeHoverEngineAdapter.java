@@ -1,20 +1,18 @@
 /*******************************************************************************
- * Copyright (c) 2016, 2018 Pivotal, Inc.
+ * Copyright (c) 2016, 2020 Pivotal, Inc.
  * All rights reserved. This program and the accompanying materials
  * are made available under the terms of the Eclipse Public License v1.0
  * which accompanies this distribution, and is available at
- * http://www.eclipse.org/legal/epl-v10.html
+ * https://www.eclipse.org/legal/epl-v10.html
  *
  * Contributors:
  *     Pivotal, Inc. - initial API and implementation
  *******************************************************************************/
 package org.springframework.ide.vscode.commons.languageserver.hover;
 
-import java.util.concurrent.CompletableFuture;
-
 import org.eclipse.lsp4j.Hover;
+import org.eclipse.lsp4j.HoverParams;
 import org.eclipse.lsp4j.Range;
-import org.eclipse.lsp4j.TextDocumentPositionParams;
 import org.eclipse.lsp4j.jsonrpc.messages.Either;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
@@ -40,7 +38,7 @@ public class VscodeHoverEngineAdapter implements HoverHandler {
 	private HoverInfoProvider hoverInfoProvider;
 	private SimpleLanguageServer server;
 	private HoverType type;
-	final static Logger logger = LoggerFactory.getLogger(VscodeHoverEngineAdapter.class);
+	final static Logger log = LoggerFactory.getLogger(VscodeHoverEngineAdapter.class);
 
 
 	public VscodeHoverEngineAdapter(SimpleLanguageServer server, HoverInfoProvider hoverInfoProvider) {
@@ -59,14 +57,11 @@ public class VscodeHoverEngineAdapter implements HoverHandler {
 	}
 
 	@Override
-	public Hover handle(TextDocumentPositionParams params) {
-		//TODO: This returns a CompletableFuture which suggests we should try to do expensive work asyncly.
-		// We are currently just doing all this in a blocking way and wrapping the already computed list into
-		// a trivial pre-resolved future.
+	public Hover handle(HoverParams params) {
 		try {
 			SimpleTextDocumentService documents = server.getTextDocumentService();
-			TextDocument doc = documents.get(params);
-			if (doc!=null) {
+			TextDocument doc = documents.get(params.getTextDocument().getUri());
+			if (doc != null) {
 				int offset = doc.toOffset(params.getPosition());
 
 				Tuple2<Renderable, IRegion> hoverTuple = hoverInfoProvider.getHoverInfo(doc, offset);
@@ -79,11 +74,17 @@ public class VscodeHoverEngineAdapter implements HoverHandler {
 					if (StringUtil.hasText(rendered)) {
 						Hover hover = new Hover(ImmutableList.of(Either.forLeft(rendered)), range);
 						return hover;
+					} else {
+						log.debug("No hover because rendered hover has no text");
 					}
+				} else {
+					log.debug("No hover because hoverInfoProvider returned no hover");
 				}
+			} else {
+				log.debug("No hover because doc is null");
 			}
 		} catch (Exception e) {
-			logger.error("error computing hover", e);
+			log.error("error computing hover", e);
 		}
 		return SimpleTextDocumentService.NO_HOVER;
 	}

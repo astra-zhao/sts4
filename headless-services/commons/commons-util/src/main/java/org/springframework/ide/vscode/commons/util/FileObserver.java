@@ -1,16 +1,15 @@
 /*******************************************************************************
- * Copyright (c) 2017 Pivotal, Inc.
+ * Copyright (c) 2017, 2020 Pivotal, Inc.
  * All rights reserved. This program and the accompanying materials
  * are made available under the terms of the Eclipse Public License v1.0
  * which accompanies this distribution, and is available at
- * http://www.eclipse.org/legal/epl-v10.html
+ * https://www.eclipse.org/legal/epl-v10.html
  *
  * Contributors:
  * Pivotal, Inc. - initial API and implementation
  *******************************************************************************/
 package org.springframework.ide.vscode.commons.util;
 
-import java.io.File;
 import java.util.List;
 import java.util.function.Consumer;
 
@@ -24,19 +23,19 @@ import reactor.core.Disposable;
  */
 public interface FileObserver {
 	
-	String onFileCreated(List<String> globPattern, Consumer<String> handler);
+	String onFilesCreated(List<String> globPattern, Consumer<String[]> handler);
 	
-	String onFileChanged(List<String> globPattern, Consumer<String> handler);
+	String onFilesChanged(List<String> globPattern, Consumer<String[]> handler);
 	
-	String onFileDeleted(List<String> globPattern, Consumer<String> handler);
+	String onFilesDeleted(List<String> globPattern, Consumer<String[]> handler);
 	
 	boolean unsubscribe(String subscriptionId);
 
-	default Disposable onAnyChange(List<String> globPattern, Consumer<String> handler) {
+	default Disposable onAnyChange(List<String> globPattern, Consumer<String[]> handler) {
 		String[] ids = {
-				onFileChanged(globPattern, handler),
-				onFileCreated(globPattern, handler),
-				onFileDeleted(globPattern, handler)
+				onFilesChanged(globPattern, handler),
+				onFilesCreated(globPattern, handler),
+				onFilesDeleted(globPattern, handler)
 		};
 		return () -> {
 			for (String id : ids) {

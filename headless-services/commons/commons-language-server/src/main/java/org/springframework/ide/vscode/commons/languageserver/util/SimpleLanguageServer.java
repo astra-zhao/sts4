@@ -1,16 +1,14 @@
 /*******************************************************************************
- * Copyright (c) 2016, 2018 Pivotal, Inc.
+ * Copyright (c) 2016, 2020 Pivotal, Inc.
  * All rights reserved. This program and the accompanying materials
  * are made available under the terms of the Eclipse Public License v1.0
  * which accompanies this distribution, and is available at
- * http://www.eclipse.org/legal/epl-v10.html
+ * https://www.eclipse.org/legal/epl-v10.html
  *
  * Contributors:
  *     Pivotal, Inc. - initial API and implementation
  *******************************************************************************/
 package org.springframework.ide.vscode.commons.languageserver.util;
-
-import static org.springframework.ide.vscode.commons.util.AsyncRunner.thenLog;
 
 import java.lang.management.ManagementFactory;
 import java.net.URI;
@@ -23,6 +21,7 @@ import java.util.HashSet;
 import java.util.LinkedHashSet;
 import java.util.List;
 import java.util.Map;
+import java.util.Optional;
 import java.util.Set;
 import java.util.UUID;
 import java.util.concurrent.Callable;
@@ -31,8 +30,8 @@ import java.util.function.Consumer;
 
 import org.eclipse.lsp4j.ApplyWorkspaceEditParams;
 import org.eclipse.lsp4j.ApplyWorkspaceEditResponse;
+import org.eclipse.lsp4j.ClientCapabilities;
 import org.eclipse.lsp4j.CodeLensOptions;
-import org.eclipse.lsp4j.CompletionOptions;
 import org.eclipse.lsp4j.Diagnostic;
 import org.eclipse.lsp4j.DiagnosticSeverity;
 import org.eclipse.lsp4j.ExecuteCommandOptions;
@@ -55,16 +54,17 @@ import org.eclipse.lsp4j.services.LanguageClient;
 import org.eclipse.lsp4j.services.LanguageClientAware;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
+import org.springframework.context.ApplicationContext;
 import org.springframework.ide.vscode.commons.languageserver.DiagnosticService;
-import org.springframework.ide.vscode.commons.languageserver.ProgressParams;
 import org.springframework.ide.vscode.commons.languageserver.ProgressService;
-import org.springframework.ide.vscode.commons.languageserver.STS4LanguageClient;
 import org.springframework.ide.vscode.commons.languageserver.Sts4LanguageServer;
 import org.springframework.ide.vscode.commons.languageserver.completion.ICompletionEngine;
 import org.springframework.ide.vscode.commons.languageserver.completion.VscodeCompletionEngineAdapter;
+import org.springframework.ide.vscode.commons.languageserver.completion.VscodeCompletionEngineAdapter.CompletionFilter;
 import org.springframework.ide.vscode.commons.languageserver.completion.VscodeCompletionEngineAdapter.LazyCompletionResolver;
-import org.springframework.ide.vscode.commons.languageserver.jdt.ls.ClasspathListener;
-import org.springframework.ide.vscode.commons.languageserver.jdt.ls.ClasspathListenerManager;
+import org.springframework.ide.vscode.commons.languageserver.config.LanguageServerProperties;
+import org.springframework.ide.vscode.commons.languageserver.java.ls.ClasspathListener;
+import org.springframework.ide.vscode.commons.languageserver.java.ls.ClasspathListenerManager;
 import org.springframework.ide.vscode.commons.languageserver.quickfix.Quickfix;
 import org.springframework.ide.vscode.commons.languageserver.quickfix.Quickfix.QuickfixData;
 import org.springframework.ide.vscode.commons.languageserver.quickfix.QuickfixEdit;
@@ -74,11 +74,12 @@ import org.springframework.ide.vscode.commons.languageserver.reconcile.Diagnosti
 import org.springframework.ide.vscode.commons.languageserver.reconcile.IProblemCollector;
 import org.springframework.ide.vscode.commons.languageserver.reconcile.IReconcileEngine;
 import org.springframework.ide.vscode.commons.languageserver.reconcile.ReconcileProblem;
+import org.springframework.ide.vscode.commons.protocol.ProgressParams;
+import org.springframework.ide.vscode.commons.protocol.STS4LanguageClient;
 import org.springframework.ide.vscode.commons.util.Assert;
 import org.springframework.ide.vscode.commons.util.AsyncRunner;
 import org.springframework.ide.vscode.commons.util.BadLocationException;
 import org.springframework.ide.vscode.commons.util.CollectionUtil;
-import org.springframework.ide.vscode.commons.util.Log;
 import org.springframework.ide.vscode.commons.util.text.TextDocument;
 
 import com.google.common.collect.ImmutableList;
@@ -111,15 +112,23 @@ public final class SimpleLanguageServer implements Sts4LanguageServer, LanguageC
 	public final LazyCompletionResolver completionResolver = createCompletionResolver();
 
 	private SimpleTextDocumentService tds;
-
 	private SimpleWorkspaceService workspace;
-
 	private STS4LanguageClient client;
+	private final LanguageServerProperties props;
 
-	private ProgressService progressService = (String taskId, String statusMsg) -> {
-		STS4LanguageClient client = SimpleLanguageServer.this.client;
-		if (client!=null) {
-			client.progress(new ProgressParams(taskId, statusMsg));
+	private ProgressService progressService = new ProgressService()  {
+
+		@Override
+		public void progressEvent(String taskId, String statusMsg) {
+			STS4LanguageClient client = SimpleLanguageServer.this.client;
+			if (client!=null) {
+				client.progress(new ProgressParams(taskId, statusMsg));
+			}
+		}
+
+		@Override
+		public void progressDone(String taskId) {
+			progressEvent(taskId, null);
 		}
 	};
 
@@ -132,32 +141,38 @@ public final class SimpleLanguageServer implements Sts4LanguageServer, LanguageC
 	private LanguageServerTestListener testListener;
 
 	private boolean hasCompletionSnippetSupport;
-
 	private boolean hasExecuteCommandSupport;
-
 	private boolean hasFileWatcherRegistrationSupport;
+	private boolean hasHierarchicalDocumentSymbolSupport;
 
 	private Consumer<InitializeParams> initializeHandler;
 	private CompletableFuture<Void> initialized = new CompletableFuture<Void>();
+	private CompletableFuture<ClientCapabilities> clientCapabilities = new CompletableFuture<>();
 
 	private Runnable shutdownHandler;
 
 	private Map<String, ExecuteCommandHandler> commands = new HashMap<>();
 
 	private AsyncRunner async = new AsyncRunner(Schedulers.newSingle(runable -> {
-		Thread t = new Thread(runable, "SimpleLanguaserver main thread");
+		Thread t = new Thread(runable, "Simple-Language-Server main thread");
 		t.setDaemon(true);
 		return t;
 	}));
 	private ClasspathListenerManager classpathListenerManager;
+
+	private Optional<CompletionFilter> completionFilter = Optional.empty();
+
+	private String completionTriggerCharacters = null;
+
+	final private ApplicationContext appContext;
 
 	@Override
 	public void connect(LanguageClient _client) {
 		this.client = (STS4LanguageClient) _client;
 	}
 
-	public VscodeCompletionEngineAdapter createCompletionEngineAdapter(SimpleLanguageServer server, ICompletionEngine engine) {
-		return new VscodeCompletionEngineAdapter(server, engine, completionResolver);
+	public VscodeCompletionEngineAdapter createCompletionEngineAdapter(ICompletionEngine engine) {
+		return new VscodeCompletionEngineAdapter(this, engine, completionResolver, completionFilter);
 	}
 
 	protected LazyCompletionResolver createCompletionResolver() {
@@ -182,7 +197,9 @@ public final class SimpleLanguageServer implements Sts4LanguageServer, LanguageC
 		}
 	}
 
-	public SimpleLanguageServer(String extensionId) {
+	public SimpleLanguageServer(String extensionId, ApplicationContext appContext, LanguageServerProperties props) {
+		this.appContext = appContext;
+		this.props = props;
 		Assert.isNotNull(extensionId);
 		this.EXTENSION_ID = extensionId;
 		this.CODE_ACTION_COMMAND_ID = "sts."+EXTENSION_ID+".codeAction";
@@ -201,14 +218,18 @@ public final class SimpleLanguageServer implements Sts4LanguageServer, LanguageC
 			return quickfixResolve(quickfixParams)
 			.flatMap((QuickfixEdit edit) -> {
 				Mono<ApplyWorkspaceEditResponse> applyEdit = Mono.fromFuture(client.applyEdit(new ApplyWorkspaceEditParams(edit.workspaceEdit)));
-				Mono<Object> moveCursor = edit.cursorMovement==null
-						? Mono.just(new ApplyWorkspaceEditResponse(true))
-						: Mono.fromFuture(client.moveCursor(edit.cursorMovement));
-				return applyEdit.flatMap(r -> r.isApplied() ? moveCursor : Mono.just(new ApplyWorkspaceEditResponse(true)));
+				return applyEdit.flatMap(r -> {
+					if (r.isApplied()) {
+						if (edit.cursorMovement!=null) {
+							return Mono.fromFuture(client.moveCursor(edit.cursorMovement));
+						}
+					}
+					return Mono.just(r);
+				});
 			})
 			.toFuture();
 		}
-		Log.warn("Unknown command ignored: "+params.getCommand());
+		log.warn("Unknown command ignored: "+params.getCommand());
 		return CompletableFuture.completedFuture(false);
 	}
 
@@ -220,6 +241,7 @@ public final class SimpleLanguageServer implements Sts4LanguageServer, LanguageC
 	@Override
 	public CompletableFuture<InitializeResult> initialize(InitializeParams params) {
 		log.info("Initializing");
+		clientCapabilities.complete(params.getCapabilities());
 
 		// multi-root workspace handling
 		List<WorkspaceFolder> workspaceFolders = getWorkspaceFolders(params);
@@ -229,7 +251,7 @@ public final class SimpleLanguageServer implements Sts4LanguageServer, LanguageC
 		else {
 			String rootUri = params.getRootUri();
 			if (rootUri==null) {
-				Log.debug("workspaceRoot NOT SET");
+				log.debug("workspaceRoot NOT SET");
 			} else {
 				List<WorkspaceFolder> singleRootFolder = new ArrayList<>();
 				String name;
@@ -249,9 +271,10 @@ public final class SimpleLanguageServer implements Sts4LanguageServer, LanguageC
 		this.hasCompletionSnippetSupport = safeGet(false, () -> params.getCapabilities().getTextDocument().getCompletion().getCompletionItem().getSnippetSupport());
 		this.hasExecuteCommandSupport = safeGet(false, () -> params.getCapabilities().getWorkspace().getExecuteCommand()!=null);
 		this.hasFileWatcherRegistrationSupport = safeGet(false, () -> params.getCapabilities().getWorkspace().getDidChangeWatchedFiles().getDynamicRegistration());
-		Log.debug("workspaceRoots = "+getWorkspaceService().getWorkspaceRoots());
-		Log.debug("hasCompletionSnippetSupport = "+hasCompletionSnippetSupport);
-		Log.debug("hasExecuteCommandSupport = "+hasExecuteCommandSupport);
+		this.hasHierarchicalDocumentSymbolSupport = safeGet(false, () -> params.getCapabilities().getTextDocument().getDocumentSymbol().getHierarchicalDocumentSymbolSupport());
+		log.debug("workspaceRoots = "+getWorkspaceService().getWorkspaceRoots());
+		log.debug("hasCompletionSnippetSupport = "+hasCompletionSnippetSupport);
+		log.debug("hasExecuteCommandSupport = "+hasExecuteCommandSupport);
 
 		InitializeResult result = new InitializeResult();
 
@@ -259,11 +282,19 @@ public final class SimpleLanguageServer implements Sts4LanguageServer, LanguageC
 			getWorkspaceService().onExecuteCommand(this::executeCommand);
 		}
 		ServerCapabilities cap = getServerCapabilities();
+		if (appContext!=null) {
+			Map<String, ServerCapabilityInitializer> extraCaps = appContext.getBeansOfType(ServerCapabilityInitializer.class);
+			for (ServerCapabilityInitializer capIniter : extraCaps.values()) {
+				capIniter.initialize(params, cap);
+			}
+		}
 		result.setCapabilities(cap);
 		Consumer<InitializeParams> ih = this.initializeHandler;
 		if (ih!=null){
 			ih.accept(params);
 		}
+		log.info("Returning server capabilities to client");
+		log.debug("Capabilities: {}", result.getCapabilities());
 		return CompletableFuture.completedFuture(result);
 	}
 
@@ -312,7 +343,7 @@ public final class SimpleLanguageServer implements Sts4LanguageServer, LanguageC
 	 * Get some info safely. If there's any kind of exception, ignore it
 	 * and retutn default value instead.
 	 */
-	private static <T> T safeGet(T deflt, Callable<T> getter) {
+	public static <T> T safeGet(T deflt, Callable<T> getter) {
 		try {
 			T x = getter.call();
 			if (x!=null) {
@@ -341,7 +372,7 @@ public final class SimpleLanguageServer implements Sts4LanguageServer, LanguageC
 			if (error instanceof ShowMessageException)
 				client.showMessage(((ShowMessageException) error).message);
 			else {
-				Log.log(message, error);
+				log.error(message, error);
 
 				MessageParams m = new MessageParams();
 
@@ -357,10 +388,6 @@ public final class SimpleLanguageServer implements Sts4LanguageServer, LanguageC
 
 		c.setTextDocumentSync(TextDocumentSyncKind.Incremental);
 		c.setHoverProvider(true);
-
-		CompletionOptions completionProvider = new CompletionOptions();
-		completionProvider.setResolveProvider(hasLazyCompletionResolver());
-		c.setCompletionProvider(completionProvider);
 
 		if (hasQuickFixes()) {
 			c.setCodeActionProvider(true);
@@ -382,10 +409,16 @@ public final class SimpleLanguageServer implements Sts4LanguageServer, LanguageC
 			codeLensOptions.setResolveProvider(hasCodeLensResolveProvider());
 			c.setCodeLensProvider(codeLensOptions );
 		}
-		if (hasExecuteCommandSupport && hasQuickFixes()) {
-			c.setExecuteCommandProvider(new ExecuteCommandOptions(ImmutableList.of(
-					CODE_ACTION_COMMAND_ID
-			)));
+		if (hasExecuteCommandSupport && (
+				hasQuickFixes() || 
+				!commands.isEmpty()
+		)) {
+			ImmutableList.Builder<String> supportedCommands = ImmutableList.builder();
+			if (hasQuickFixes()) {
+				supportedCommands.add(CODE_ACTION_COMMAND_ID);
+			}
+			supportedCommands.addAll(commands.keySet());
+			c.setExecuteCommandProvider(new ExecuteCommandOptions(supportedCommands.build()));
 		}
 		if (hasWorkspaceSymbolHandler()) {
 			c.setWorkspaceSymbolProvider(true);
@@ -460,25 +493,6 @@ public final class SimpleLanguageServer implements Sts4LanguageServer, LanguageC
 		return getWorkspaceService().getWorkspaceRoots();
 	}
 
-//	/**
-//	 * Deprecated, shouldn't use and should be removed. Anyone calling this
-//	 * will have problems handling multi-root workspaces.
-//	 * <p>
-//	 * Use getWorkspaceRoots instead.
-//	 */
-//	@Deprecated
-//	public Path getWorkspaceRoot() {
-//		try {
-//			Optional<WorkspaceFolder> firstRoot = getWorkspaceRoots().stream().findFirst();
-//			if (firstRoot.isPresent()) {
-//				return new File(new URI(firstRoot.get().getUri())).toPath();
-//			}
-//		} catch (Exception e) {
-//			Log.log(e);
-//		}
-//		return null;
-//	}
-
 	@Override
 	public synchronized SimpleTextDocumentService getTextDocumentService() {
 		if (tds==null) {
@@ -488,7 +502,7 @@ public final class SimpleLanguageServer implements Sts4LanguageServer, LanguageC
 	}
 
 	protected SimpleTextDocumentService createTextDocumentService() {
-		return new SimpleTextDocumentService(this);
+		return new SimpleTextDocumentService(this, props);
 	}
 
 	public SimpleWorkspaceService createWorkspaceService() {
@@ -519,9 +533,15 @@ public final class SimpleLanguageServer implements Sts4LanguageServer, LanguageC
 	 */
 	public void validateWith(TextDocumentIdentifier docId, IReconcileEngine engine) {
 		SimpleTextDocumentService documents = getTextDocumentService();
-		int requestedVersion = documents.getDocument(docId.getUri()).getVersion();
-		VersionedTextDocumentIdentifier request = new VersionedTextDocumentIdentifier(requestedVersion);
-		request.setUri(docId.getUri());
+
+		TextDocument document = documents.getDocument(docId.getUri());
+		if (document == null) {
+			log.debug("Reconcile skipped due to document doesn't exist anymore {}", docId.getUri());
+			return;
+		}
+		
+		int requestedVersion = document.getVersion();
+		VersionedTextDocumentIdentifier request = new VersionedTextDocumentIdentifier(docId.getUri(), requestedVersion);
 		log.debug("Reconcile requested {} - {}", request.getUri(), request.getVersion());
 		if (!queuedReconcileRequests.add(request)) {
 			log.debug("Reconcile skipped {} - {}", request.getUri(), request.getVersion());
@@ -531,27 +551,34 @@ public final class SimpleLanguageServer implements Sts4LanguageServer, LanguageC
 		CompletableFuture<Void> reconcileSession = this.busyReconcile = new CompletableFuture<Void>();
 //		Log.debug("Reconciling BUSY");
 
-
-
-
 		// Avoid running in the same thread as lsp4j as it can result
 		// in long "hangs" for slow reconcile providers
 		Mono.fromRunnable(() -> {
 			queuedReconcileRequests.remove(request);
 			log.debug("Reconcile starting {} - {}", request.getUri(), request.getVersion());
+
 			TextDocument doc = documents.getDocument(docId.getUri()).copy();
-			if (requestedVersion!=doc.getVersion()) {
-				log.debug("Reconcile aborted {} - {}", request.getUri(), request.getVersion());
+
+			if (doc == null) {
+				log.debug("Reconcile aborted due to document doesn't exist {} - {}", request.getUri(), request.getVersion());
+				//Do not bother reconciling if document doesn't exist anymore (got closed in the meantime)
+				return;
+			}
+
+			if (requestedVersion != doc.getVersion()) {
+				log.debug("Reconcile aborted due to document being already stale {} - {}", request.getUri(), request.getVersion());
 				//Do not bother reconciling if document contents is already stale.
 				return;
 			}
-			if (testListener!=null) {
+
+			if (testListener != null) {
 				testListener.reconcileStarted(docId.getUri(), doc.getVersion());
 			}
+
 			IProblemCollector problems = new IProblemCollector() {
 
 				private LinkedHashSet<Diagnostic> diagnostics = new LinkedHashSet<>();
-				private List<Quickfix> quickfixes = new ArrayList<>();
+				private List<Quickfix<?>> quickfixes = new ArrayList<>();
 
 				@Override
 				public void endCollecting() {
@@ -591,7 +618,7 @@ public final class SimpleLanguageServer implements Sts4LanguageServer, LanguageC
 							diagnostics.add(d);
 						}
 					} catch (BadLocationException e) {
-						Log.warn("Invalid reconcile problem ignored", e);
+						log.warn("Invalid reconcile problem ignored", e);
 					}
 				}
 			};
@@ -599,7 +626,7 @@ public final class SimpleLanguageServer implements Sts4LanguageServer, LanguageC
 			engine.reconcile(doc, problems);
 		})
 		.onErrorResume(error -> {
-			Log.log(error);
+			log.error("", error);
 			return Mono.empty();
 		})
 		.doFinally(ignore -> {
@@ -652,13 +679,23 @@ public final class SimpleLanguageServer implements Sts4LanguageServer, LanguageC
 		return this;
 	}
 
+	public CompletableFuture<ClientCapabilities> getClientCapabilities() {
+		return clientCapabilities;
+	}
+
 	public synchronized void onInitialize(Consumer<InitializeParams> handler) {
 		Assert.isNull("Multiple initialize handlers not supported yet", this.initializeHandler);
 		this.initializeHandler = handler;
 	}
 
-	public synchronized void onInitialized(Runnable handler) {
-		thenLog(log, this.initialized.thenAccept((whocares) -> handler.run()));
+	public <T> Mono<T> onInitialized(Mono<T> handler) {
+		return Mono.fromFuture(this.initialized).then(handler)
+				.doOnError(error -> log.error("", error));
+	}
+
+
+	public void doOnInitialized(Runnable action) {
+		onInitialized(Mono.fromRunnable(action)).toFuture();
 	}
 
 	public synchronized void onShutdown(Runnable handler) {
@@ -677,7 +714,7 @@ public final class SimpleLanguageServer implements Sts4LanguageServer, LanguageC
 		return this.async;
 	}
 
-	public synchronized Disposable addClasspathListener(ClasspathListener classpathListener) throws Exception {
+	public synchronized Mono<Disposable> addClasspathListener(ClasspathListener classpathListener) {
 		if (classpathListenerManager == null) {
 			classpathListenerManager = new ClasspathListenerManager(this);
 		}
@@ -687,4 +724,25 @@ public final class SimpleLanguageServer implements Sts4LanguageServer, LanguageC
 	public void setDiagnosticSeverityProvider(DiagnosticSeverityProvider severities) {
 		this.severityProvider = severities;
 	}
+
+	public void setCompletionFilter(Optional<CompletionFilter> completionFilter) {
+		this.completionFilter = completionFilter;
+	}
+
+	public String getCompletionTriggerCharacters() {
+		return completionTriggerCharacters;
+	}
+
+	public void setCompletionTriggerCharacters(String completionTriggerCharacters) {
+		this.completionTriggerCharacters = completionTriggerCharacters;
+	}
+
+	public boolean hasHierarchicalDocumentSymbolSupport() {
+		return hasHierarchicalDocumentSymbolSupport;
+	}
+
+	final public boolean hasCompletionSnippetSupport() {
+		return hasCompletionSnippetSupport;
+	}
+
 }

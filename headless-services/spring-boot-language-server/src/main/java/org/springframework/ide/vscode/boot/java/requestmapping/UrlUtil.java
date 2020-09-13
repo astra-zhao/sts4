@@ -1,9 +1,9 @@
 /*******************************************************************************
- * Copyright (c) 2017, 2018 Pivotal, Inc.
+ * Copyright (c) 2017, 2019 Pivotal, Inc.
  * All rights reserved. This program and the accompanying materials
  * are made available under the terms of the Eclipse Public License v1.0
  * which accompanies this distribution, and is available at
- * http://www.eclipse.org/legal/epl-v10.html
+ * https://www.eclipse.org/legal/epl-v10.html
  *
  * Contributors:
  *     Pivotal, Inc. - initial API and implementation
@@ -22,7 +22,7 @@ public class UrlUtil {
 	 * @param contextPath
 	 * @return the resultant URL
 	 */
-	public static String createUrl(String host, String port, String path, String contextPath) {
+	public static String createUrl(String urlScheme, String host, String port, String path, String contextPath) {
 		if (path==null) {
 			path = "";
 		}
@@ -37,10 +37,16 @@ public class UrlUtil {
 					}
 					path = contextPath + path;
 				}
-				if (port.equals("80")) {
-					return "http://"+host+path;
+				String defaultPort = "";
+				if (urlScheme.equals("http")) {
+					defaultPort = "80";
+				} else if (urlScheme.equals("https")) {
+					defaultPort = "443";
+				}
+				if (defaultPort.equals(port)) {
+					return urlScheme+"://"+host+path;
 				} else {
-					return "http://"+host+":"+port+path;
+					return urlScheme+"://"+ host + ":" + port +path;
 				}
 			}
 		}

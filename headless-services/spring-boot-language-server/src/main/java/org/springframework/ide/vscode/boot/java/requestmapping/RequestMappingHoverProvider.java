@@ -1,9 +1,9 @@
 /*******************************************************************************
- * Copyright (c) 2017, 2018 Pivotal, Inc.
+ * Copyright (c) 2017, 2019 Pivotal, Inc.
  * All rights reserved. This program and the accompanying materials
  * are made available under the terms of the Eclipse Public License v1.0
  * which accompanies this distribution, and is available at
- * http://www.eclipse.org/legal/epl-v10.html
+ * https://www.eclipse.org/legal/epl-v10.html
  *
  * Contributors:
  *     Pivotal, Inc. - initial API and implementation
@@ -25,15 +25,14 @@ import org.eclipse.jdt.core.dom.MethodDeclaration;
 import org.eclipse.lsp4j.CodeLens;
 import org.eclipse.lsp4j.Command;
 import org.eclipse.lsp4j.Hover;
-import org.eclipse.lsp4j.MarkedString;
 import org.eclipse.lsp4j.Range;
 import org.eclipse.lsp4j.jsonrpc.messages.Either;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.ide.vscode.boot.java.handlers.HoverProvider;
 import org.springframework.ide.vscode.boot.java.livehover.LiveHoverUtils;
-import org.springframework.ide.vscode.commons.boot.app.cli.SpringBootApp;
-import org.springframework.ide.vscode.commons.boot.app.cli.requestmappings.RequestMapping;
+import org.springframework.ide.vscode.boot.java.livehover.v2.LiveRequestMapping;
+import org.springframework.ide.vscode.boot.java.livehover.v2.SpringProcessLiveData;
 import org.springframework.ide.vscode.commons.java.IJavaProject;
 import org.springframework.ide.vscode.commons.util.Renderable;
 import org.springframework.ide.vscode.commons.util.Renderables;
@@ -50,21 +49,23 @@ import reactor.util.function.Tuples;
  */
 public class RequestMappingHoverProvider implements HoverProvider {
 
+//	private static final String $$_LAMBDA$ = "$$Lambda$";
+
 	private static final Logger log = LoggerFactory.getLogger(RequestMappingHoverProvider.class);
 
 	private static final int CODE_LENS_LIMIT = 3;
 
 	@Override
 	public Hover provideHover(ASTNode node, Annotation annotation,
-			ITypeBinding type, int offset, TextDocument doc, IJavaProject project, SpringBootApp[] runningApps) {
-		return provideHover(annotation, doc, runningApps);
+			ITypeBinding type, int offset, TextDocument doc, IJavaProject project, SpringProcessLiveData[] processLiveData) {
+		return provideHover(annotation, doc, processLiveData);
 	}
 
 	@Override
-	public Collection<CodeLens> getLiveHintCodeLenses(IJavaProject project, Annotation annotation, TextDocument doc, SpringBootApp[] runningApps) {
+	public Collection<CodeLens> getLiveHintCodeLenses(IJavaProject project, Annotation annotation, TextDocument doc, SpringProcessLiveData[] processLiveData) {
 		try {
-			if (runningApps.length > 0) {
-				List<Tuple2<RequestMapping, SpringBootApp>> val = getRequestMappingMethodFromRunningApp(annotation, runningApps);
+			if (processLiveData.length > 0) {
+				List<Tuple2<LiveRequestMapping, SpringProcessLiveData>> val = getRequestMappingMethodFromRunningApp(annotation, processLiveData);
 				if (!val.isEmpty()) {
 					Range hoverRange = doc.toRange(annotation.getStartPosition(), annotation.getLength());
 				    List<String> urls = getUrls(val);
@@ -78,6 +79,58 @@ public class RequestMappingHoverProvider implements HoverProvider {
 
 		return null;
 	}
+
+//	@Override
+//	public Collection<CodeLens> getLiveHintCodeLenses(IJavaProject project, MethodDeclaration methodDeclaration,
+//			TextDocument doc, SpringBootApp[] runningApps) {
+//		try {
+//			ImmutableList.Builder<Tuple2<RequestMapping, SpringBootApp>> builder = ImmutableList.builder();
+//			if (runningApps.length > 0) {
+//				Annotation beanAnnotation = ASTUtils.getBeanAnnotation(methodDeclaration);
+//				if (beanAnnotation != null) {
+//					ITypeBinding returnTypeBinding = methodDeclaration.getReturnType2().resolveBinding();
+//					if ("org.springframework.web.reactive.function.server.RouterFunction".equals(returnTypeBinding.getErasure().getQualifiedName())) {
+//						for (SpringBootApp app : runningApps) {
+//							List<RequestMapping> matches = findFunctionalRequestMappings(app.getRequestMappings(), methodDeclaration);
+//							for (RequestMapping rm : matches) {
+//								builder.add(Tuples.of(rm, app));
+//							}
+//						}
+//					}
+//				}
+//			}
+//			List<Tuple2<RequestMapping, SpringBootApp>> data = builder.build();
+//			if (!data.isEmpty()) {
+//				SimpleName methodName = methodDeclaration.getName();
+//				Range hoverRange = doc.toRange(methodName.getStartPosition(), methodName.getLength());
+//				return assembleCodeLenses(hoverRange, getUrls(data));
+//			}
+//		} catch (Exception e) {
+//			log.error("", e);
+//		}
+//		return null;
+//	}
+//
+//	private List<RequestMapping> findFunctionalRequestMappings(Collection<RequestMapping> requestMappings,
+//			MethodDeclaration methodDeclaration) {
+//		ImmutableList.Builder<RequestMapping> builder = ImmutableList.builder();
+//		IMethodBinding binding = methodDeclaration.resolveBinding();
+//		if (requestMappings != null) {
+//			for (RequestMapping rm : requestMappings) {
+//				String fqName = rm.getFullyQualifiedClassName();
+//				if (fqName != null) {
+//					int lambdaIdx = fqName.indexOf($$_LAMBDA$);
+//					if (lambdaIdx > 0) {
+//						String containingTypeFqName = fqName.substring(0, lambdaIdx);
+//						if (binding.getDeclaringClass().getQualifiedName().equals(containingTypeFqName)) {
+//							builder.add(rm);
+//						}
+//					}
+//				}
+//			}
+//		}
+//		return builder.build();
+//	}
 
 	private Collection<CodeLens> assembleCodeLenses(Range range, List<String> urls) {
 
@@ -97,21 +150,15 @@ public class RequestMappingHoverProvider implements HoverProvider {
 		return lenses;
 	}
 
-	private Hover provideHover(Annotation annotation, TextDocument doc, SpringBootApp[] runningApps) {
+	private Hover provideHover(Annotation annotation, TextDocument doc, SpringProcessLiveData[] processLiveData) {
 
 		try {
-			List<Either<String, MarkedString>> hoverContent = new ArrayList<>();
-
-			List<Tuple2<RequestMapping, SpringBootApp>> val = getRequestMappingMethodFromRunningApp(annotation, runningApps);
+			List<Tuple2<LiveRequestMapping, SpringProcessLiveData>> val = getRequestMappingMethodFromRunningApp(annotation, processLiveData);
 
 			if (!val.isEmpty()) {
-				addHoverContent(val, hoverContent);
+				Hover hover = createHoverWithContent(val);
 				Range hoverRange = doc.toRange(annotation.getStartPosition(), annotation.getLength());
-				Hover hover = new Hover();
-
-				hover.setContents(hoverContent);
 				hover.setRange(hoverRange);
-
 				return hover;
 			} else {
 				return null;
@@ -124,17 +171,17 @@ public class RequestMappingHoverProvider implements HoverProvider {
 		return null;
 	}
 
-	private List<Tuple2<RequestMapping, SpringBootApp>> getRequestMappingMethodFromRunningApp(Annotation annotation,
-			SpringBootApp[] runningApps) {
+	private List<Tuple2<LiveRequestMapping, SpringProcessLiveData>> getRequestMappingMethodFromRunningApp(Annotation annotation,
+			SpringProcessLiveData[] processLiveData) {
 
-		List<Tuple2<RequestMapping, SpringBootApp>> results = new ArrayList<>();
+		List<Tuple2<LiveRequestMapping, SpringProcessLiveData>> results = new ArrayList<>();
 		try {
-			for (SpringBootApp app : runningApps) {
-				Collection<RequestMapping> mappings = app.getRequestMappings();
-				if (mappings != null && !mappings.isEmpty()) {
-					mappings.stream()
+			for (SpringProcessLiveData liveData : processLiveData) {
+				LiveRequestMapping[] mappings = liveData.getRequestMappings();
+				if (mappings != null && mappings.length > 0) {
+					Arrays.stream(mappings)
 							.filter(rm -> methodMatchesAnnotation(annotation, rm))
-							.map(rm -> Tuples.of(rm, app))
+							.map(rm -> Tuples.of(rm, liveData))
 							.findFirst().ifPresent(t -> results.add(t));
 				}
 			}
@@ -144,7 +191,7 @@ public class RequestMappingHoverProvider implements HoverProvider {
 		return results;
 	}
 
-	private boolean methodMatchesAnnotation(Annotation annotation, RequestMapping rm) {
+	private boolean methodMatchesAnnotation(Annotation annotation, LiveRequestMapping rm) {
 		String rqClassName = rm.getFullyQualifiedClassName();
 
 		if (rqClassName != null) {
@@ -175,15 +222,16 @@ public class RequestMappingHoverProvider implements HoverProvider {
 		return false;
 	}
 
-	private List<String> getUrls(List<Tuple2<RequestMapping, SpringBootApp>> mappingMethods) throws Exception {
+	private List<String> getUrls(List<Tuple2<LiveRequestMapping, SpringProcessLiveData>> mappingMethods) throws Exception {
 		List<String> urls = new ArrayList<>();
 		for (int i = 0; i < mappingMethods.size(); i++) {
-			Tuple2<RequestMapping, SpringBootApp> mappingMethod = mappingMethods.get(i);
-			SpringBootApp app = mappingMethod.getT2();
-			String contextPath = app.getContextPath();
+			Tuple2<LiveRequestMapping, SpringProcessLiveData> mappingMethod = mappingMethods.get(i);
+			SpringProcessLiveData liveData = mappingMethod.getT2();
+			String contextPath = liveData.getContextPath();
 
-			String port = app.getPort();
-			String host = app.getHost();
+			String urlScheme = liveData.getUrlScheme();
+			String port = liveData.getPort();
+			String host = liveData.getHost();
 
 			String[] paths = mappingMethod.getT1().getSplitPath();
 			if (paths==null || paths.length==0) {
@@ -194,20 +242,23 @@ public class RequestMappingHoverProvider implements HoverProvider {
 				paths = new String[] {""};
 			}
 			for (String path : paths) {
-				String url = UrlUtil.createUrl(host, port, path, contextPath);
+				String url = UrlUtil.createUrl(urlScheme, host, port, path, contextPath);
 				urls.add(url);
 			}
 		}
 		return urls;
 	}
 
-	private void addHoverContent(List<Tuple2<RequestMapping, SpringBootApp>> mappingMethods, List<Either<String, MarkedString>> hoverContent) throws Exception {
-		for (int i = 0; i < mappingMethods.size(); i++) {
-			Tuple2<RequestMapping, SpringBootApp> mappingMethod = mappingMethods.get(i);
+	private Hover createHoverWithContent(List<Tuple2<LiveRequestMapping, SpringProcessLiveData>> mappingMethods) throws Exception {
 
-			SpringBootApp app = mappingMethod.getT2();
-			String port = mappingMethod.getT2().getPort();
-			String host = mappingMethod.getT2().getHost();
+		StringBuilder contentVal = new StringBuilder();
+		for (int i = 0; i < mappingMethods.size(); i++) {
+			Tuple2<LiveRequestMapping, SpringProcessLiveData> mappingMethod = mappingMethods.get(i);
+
+			SpringProcessLiveData liveData = mappingMethod.getT2();
+			String urlScheme = liveData.getUrlScheme();
+			String port = liveData.getPort();
+			String host = liveData.getHost();
 
 			String[] paths = mappingMethod.getT1().getSplitPath();
 			if (paths==null || paths.length==0) {
@@ -217,25 +268,32 @@ public class RequestMappingHoverProvider implements HoverProvider {
 				//So we'll pretend this is the same as path="" as that gives a working link.
 				paths = new String[] {""};
 			}
-			String contextPath = app.getContextPath();
+			String contextPath = liveData.getContextPath();
 			List<Renderable> renderableUrls = Arrays.stream(paths).flatMap(path -> {
-				String url = UrlUtil.createUrl(host, port, path, contextPath);
+				String url = UrlUtil.createUrl(urlScheme, host, port, path, contextPath);
 				return Stream.of(Renderables.link(url, url), Renderables.lineBreak());
 			})
 			.collect(Collectors.toList());
 
 			Renderable urlRenderables = Renderables.concat(renderableUrls);
-			hoverContent.add(Either.forLeft(Renderables.concat(
+			Renderable processSection = Renderables.concat(
 					urlRenderables,
-					Renderables.lineBreak(),
-					Renderables.mdBlob(LiveHoverUtils.niceAppName(app))
-			).toMarkdown()));
+					Renderables.mdBlob(LiveHoverUtils.niceAppName(liveData))
+			);
+
 			if (i < mappingMethods.size() - 1) {
-				// Three dashes == line separator in Markdown
-				hoverContent.add(Either.forLeft("---"));
+				processSection = Renderables.concat(
+						processSection,
+						Renderables.text("\n\n")
+				);
 			}
 
+			String markdown = processSection.toMarkdown();
+			contentVal.append(markdown);
 		}
+		// PT 163470104 - Add content at hover construction to avoid separators
+		// being added between the content itself
+		return new Hover(ImmutableList.of(Either.forLeft(contentVal.toString())));
 	}
 
 	private CodeLens createCodeLensForRequestMapping(Range range, String content) {

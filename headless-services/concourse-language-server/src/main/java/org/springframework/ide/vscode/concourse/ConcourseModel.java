@@ -3,7 +3,7 @@
  * All rights reserved. This program and the accompanying materials
  * are made available under the terms of the Eclipse Public License v1.0
  * which accompanies this distribution, and is available at
- * http://www.eclipse.org/legal/epl-v10.html
+ * https://www.eclipse.org/legal/epl-v10.html
  *
  * Contributors:
  *     Pivotal, Inc. - initial API and implementation
@@ -76,13 +76,13 @@ public class ConcourseModel {
 	 * that same type of something).
 	 */
 	public Constraint isUsed(YType refType, String entityTypeName) {
-		getAstTypeCache().addInterestingType(refType); //ensure the type is tracked in the type-cache
+		astTypeCache.addInterestingType(refType); //ensure the type is tracked in the type-cache
 		return new Constraint() {
 			@Override
 			public void verify(DynamicSchemaContext dc, Node parent, Node node, YType type, IProblemCollector problems) {
 				String defName = NodeUtil.asScalar(node);
 				if (StringUtil.hasText(defName)) { //Avoid silly 'not used' errors for empty names (will have an other error already).
-					NodeTypes nodeTypes = getAstTypeCache().getNodeTypes(dc.getDocument().getUri());
+					NodeTypes nodeTypes = astTypeCache.getNodeTypes(dc.getDocument().getUri());
 					if (nodeTypes!=null) {
 						Optional<Node> reference = nodeTypes.getNodes(refType).stream()
 							.filter(refNode -> defName.equals(NodeUtil.asScalar(refNode)))
@@ -286,8 +286,9 @@ public class ConcourseModel {
 		valueAt("name")
 	);
 
+	private final ASTTypeCache astTypeCache;
+
 	private final YamlAstCache asts = new YamlAstCache();
-	private final ASTTypeCache astTypes = new ASTTypeCache();
 
 	private ResourceTypeRegistry resourceTypes;
 
@@ -295,7 +296,8 @@ public class ConcourseModel {
 
 	private YBeanUnionType stepType;
 
-	public ConcourseModel(SimpleLanguageServer languageServer) {
+	public ConcourseModel(SimpleLanguageServer languageServer, ASTTypeCache astTypeCache) {
+		this.astTypeCache = astTypeCache;
 		this.snippetBuilderFactory = languageServer::createSnippetBuilder;
 	}
 
@@ -372,25 +374,27 @@ public class ConcourseModel {
 		});
 	}
 
-	public Multiset<String> getResourceTypeNames(DynamicSchemaContext dc) {
-		Collection<YValueHint> hints = getResourceTypeNameHints(dc);
+	public Multiset<String> getResourceTypeNames(DynamicSchemaContext dc, boolean includeBuiltin) {
+		Collection<YValueHint> hints = getResourceTypeNameHints(dc, includeBuiltin);
 		if (hints!=null) {
 			return ImmutableMultiset.copyOf(YTypeFactory.values(hints));
 		}
 		return null;
 	}
 
-	public Collection<YValueHint> getResourceTypeNameHints(DynamicSchemaContext dc) {
+	public Collection<YValueHint> getResourceTypeNameHints(DynamicSchemaContext dc, boolean includeBuiltin) {
 		IDocument doc = dc.getDocument();
 		Multiset<String> userDefined = getStringsFromAst(doc, RESOURCE_TYPE_NAMES_PATH);
 		if (userDefined!=null) {
 			Builder<YValueHint> builder = ImmutableMultiset.builder();
 			builder.addAll(YTypeFactory.hints(userDefined));
-			builder.addAll(
-					Arrays.stream(PipelineYmlSchema.BUILT_IN_RESOURCE_TYPES)
-					.map(h -> addExtraInsertion(h, dc))
-					.collect(Collectors.toList())
-			);
+			if (includeBuiltin) {
+				builder.addAll(
+						Arrays.stream(PipelineYmlSchema.BUILT_IN_RESOURCE_TYPES)
+						.map(h -> addExtraInsertion(h, dc))
+						.collect(Collectors.toList())
+				);
+			}
 			return builder.build();
 		}
 		return null;
@@ -420,7 +424,7 @@ public class ConcourseModel {
 						snippet.text("\n  "+p.getName()+": ");
 						snippet.placeHolder();
 					}
-					return snippet.toString();
+					return snippet.build();
 				}
 			}
 			return null;
@@ -445,10 +449,6 @@ public class ConcourseModel {
 		return null;
 	}
 
-
-	public ASTTypeCache getAstTypeCache() {
-		return astTypes;
-	}
 
 	public void setResourceTypeRegistry(ResourceTypeRegistry resourceTypes) {
 		this.resourceTypes = resourceTypes;

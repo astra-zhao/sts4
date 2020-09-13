@@ -1,9 +1,9 @@
 /*******************************************************************************
- * Copyright (c) 2016, 2018 Pivotal, Inc.
+ * Copyright (c) 2016, 2020 Pivotal, Inc.
  * All rights reserved. This program and the accompanying materials
  * are made available under the terms of the Eclipse Public License v1.0
  * which accompanies this distribution, and is available at
- * http://www.eclipse.org/legal/epl-v10.html
+ * https://www.eclipse.org/legal/epl-v10.html
  *
  * Contributors:
  *     Pivotal, Inc. - initial API and implementation
@@ -33,7 +33,7 @@ import java.util.List;
 import java.util.Map;
 import java.util.Map.Entry;
 import java.util.Random;
-import java.util.concurrent.Callable;
+import java.util.Set;
 import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.Future;
 import java.util.concurrent.TimeUnit;
@@ -54,6 +54,9 @@ import org.eclipse.lsp4j.CompletionItem;
 import org.eclipse.lsp4j.CompletionItemCapabilities;
 import org.eclipse.lsp4j.CompletionList;
 import org.eclipse.lsp4j.CompletionParams;
+import org.eclipse.lsp4j.CreateFile;
+import org.eclipse.lsp4j.DefinitionParams;
+import org.eclipse.lsp4j.DeleteFile;
 import org.eclipse.lsp4j.Diagnostic;
 import org.eclipse.lsp4j.DiagnosticSeverity;
 import org.eclipse.lsp4j.DidChangeConfigurationParams;
@@ -61,15 +64,19 @@ import org.eclipse.lsp4j.DidChangeTextDocumentParams;
 import org.eclipse.lsp4j.DidChangeWatchedFilesParams;
 import org.eclipse.lsp4j.DidCloseTextDocumentParams;
 import org.eclipse.lsp4j.DidOpenTextDocumentParams;
+import org.eclipse.lsp4j.DocumentSymbol;
+import org.eclipse.lsp4j.DocumentSymbolCapabilities;
 import org.eclipse.lsp4j.DocumentSymbolParams;
 import org.eclipse.lsp4j.ExecuteCommandCapabilities;
 import org.eclipse.lsp4j.ExecuteCommandParams;
 import org.eclipse.lsp4j.FileChangeType;
 import org.eclipse.lsp4j.FileEvent;
 import org.eclipse.lsp4j.Hover;
+import org.eclipse.lsp4j.HoverParams;
 import org.eclipse.lsp4j.InitializeParams;
 import org.eclipse.lsp4j.InitializeResult;
 import org.eclipse.lsp4j.Location;
+import org.eclipse.lsp4j.LocationLink;
 import org.eclipse.lsp4j.MarkupContent;
 import org.eclipse.lsp4j.MessageActionItem;
 import org.eclipse.lsp4j.MessageParams;
@@ -77,35 +84,42 @@ import org.eclipse.lsp4j.Position;
 import org.eclipse.lsp4j.PublishDiagnosticsParams;
 import org.eclipse.lsp4j.Range;
 import org.eclipse.lsp4j.RegistrationParams;
+import org.eclipse.lsp4j.RenameFile;
+import org.eclipse.lsp4j.ResourceOperation;
+import org.eclipse.lsp4j.ResourceOperationKind;
 import org.eclipse.lsp4j.ShowMessageRequestParams;
 import org.eclipse.lsp4j.SymbolInformation;
 import org.eclipse.lsp4j.TextDocumentClientCapabilities;
 import org.eclipse.lsp4j.TextDocumentContentChangeEvent;
+import org.eclipse.lsp4j.TextDocumentEdit;
 import org.eclipse.lsp4j.TextDocumentIdentifier;
 import org.eclipse.lsp4j.TextDocumentItem;
-import org.eclipse.lsp4j.TextDocumentPositionParams;
 import org.eclipse.lsp4j.TextDocumentSyncKind;
 import org.eclipse.lsp4j.TextDocumentSyncOptions;
 import org.eclipse.lsp4j.TextEdit;
 import org.eclipse.lsp4j.VersionedTextDocumentIdentifier;
 import org.eclipse.lsp4j.WorkspaceClientCapabilities;
 import org.eclipse.lsp4j.WorkspaceEdit;
+import org.eclipse.lsp4j.WorkspaceEditCapabilities;
+import org.eclipse.lsp4j.WorkspaceSymbolParams;
 import org.eclipse.lsp4j.jsonrpc.messages.Either;
 import org.eclipse.lsp4j.services.LanguageClientAware;
-import org.springframework.ide.vscode.commons.languageserver.HighlightParams;
-import org.springframework.ide.vscode.commons.languageserver.JavadocParams;
-import org.springframework.ide.vscode.commons.languageserver.JavadocResponse;
-import org.springframework.ide.vscode.commons.languageserver.ProgressParams;
-import org.springframework.ide.vscode.commons.languageserver.STS4LanguageClient;
 import org.springframework.ide.vscode.commons.languageserver.completion.DocumentEdits;
-import org.springframework.ide.vscode.commons.languageserver.config.LanguageServerInitializer;
-import org.springframework.ide.vscode.commons.languageserver.jdt.ls.ClasspathListenerParams;
-import org.springframework.ide.vscode.commons.languageserver.quickfix.QuickfixEdit.CursorMovement;
 import org.springframework.ide.vscode.commons.languageserver.util.LanguageServerTestListener;
 import org.springframework.ide.vscode.commons.languageserver.util.Settings;
 import org.springframework.ide.vscode.commons.languageserver.util.SimpleLanguageServer;
-import org.springframework.ide.vscode.commons.languageserver.util.SimpleLanguageServerWrapper;
-import org.springframework.ide.vscode.commons.util.Assert;
+import org.springframework.ide.vscode.commons.protocol.CursorMovement;
+import org.springframework.ide.vscode.commons.protocol.HighlightParams;
+import org.springframework.ide.vscode.commons.protocol.ProgressParams;
+import org.springframework.ide.vscode.commons.protocol.STS4LanguageClient;
+import org.springframework.ide.vscode.commons.protocol.java.ClasspathListenerParams;
+import org.springframework.ide.vscode.commons.protocol.java.JavaCodeCompleteData;
+import org.springframework.ide.vscode.commons.protocol.java.JavaCodeCompleteParams;
+import org.springframework.ide.vscode.commons.protocol.java.JavaDataParams;
+import org.springframework.ide.vscode.commons.protocol.java.JavaSearchParams;
+import org.springframework.ide.vscode.commons.protocol.java.JavaTypeHierarchyParams;
+import org.springframework.ide.vscode.commons.protocol.java.TypeData;
+import org.springframework.ide.vscode.commons.protocol.java.TypeDescriptorData;
 import org.springframework.ide.vscode.commons.util.ExceptionUtil;
 import org.springframework.ide.vscode.commons.util.IOUtil;
 import org.springframework.ide.vscode.commons.util.UriUtil;
@@ -113,6 +127,7 @@ import org.springframework.ide.vscode.commons.util.text.LanguageId;
 import org.springframework.ide.vscode.commons.util.text.TextDocument;
 
 import com.google.common.collect.ImmutableList;
+import com.google.common.collect.ImmutableSet;
 import com.google.common.collect.Multimap;
 import com.google.common.collect.MultimapBuilder;
 import com.google.gson.Gson;
@@ -138,13 +153,15 @@ public class LanguageServerHarness {
 	private List<Editor> activeEditors = new ArrayList<>();
 	private Gson gson = new Gson();
 
+	private boolean enableHierarchicalDocumentSymbols = false;
+
 
 	public LanguageServerHarness(SimpleLanguageServer server, LanguageId defaultLanguageId) {
 		this.defaultLanguageId = defaultLanguageId;
 		this.server = server;
 	}
 
-	public static final Duration HIGHLIGHTS_TIMEOUT = Duration.ofMillis(15000000000L); //Why so long?
+	public static final Duration HIGHLIGHTS_TIMEOUT = Duration.ofMillis(10_000L); //Why so long?
 
 //	public static LanguageServerHarness<SimpleLanguageServer> create(String extensionId, LanguageServerInitializer initializer) throws Exception {
 //		Callable<SimpleLanguageServer> factory = () -> {
@@ -221,6 +238,12 @@ public class LanguageServerHarness {
 		}
 	}
 
+	public void ensureInitialized() throws Exception {
+		if (initResult==null) {
+			intialize(null);
+		}
+	}
+
 	public InitializeResult intialize(File workspaceRoot) throws Exception {
 		int parentPid = random.nextInt(40000)+1000;
 		InitializeParams initParams = new InitializeParams();
@@ -231,6 +254,9 @@ public class LanguageServerHarness {
 		initParams.setProcessId(parentPid);
 		ClientCapabilities clientCap = new ClientCapabilities();
 		TextDocumentClientCapabilities textCap = new TextDocumentClientCapabilities();
+		DocumentSymbolCapabilities documentSymbolCap = new DocumentSymbolCapabilities();
+		documentSymbolCap.setHierarchicalDocumentSymbolSupport(enableHierarchicalDocumentSymbols);
+		textCap.setDocumentSymbol(documentSymbolCap);
 		CompletionCapabilities completionCap = new CompletionCapabilities(new CompletionItemCapabilities(true));
 		textCap.setCompletion(completionCap);
 		clientCap.setTextDocument(textCap);
@@ -239,6 +265,10 @@ public class LanguageServerHarness {
 		ExecuteCommandCapabilities exeCap = new ExecuteCommandCapabilities();
 		exeCap.setDynamicRegistration(true);
 		workspaceCap.setExecuteCommand(exeCap);
+		WorkspaceEditCapabilities workspaceEdit = new WorkspaceEditCapabilities();
+		workspaceEdit.setDocumentChanges(true);
+		workspaceEdit.setResourceOperations(Arrays.asList(ResourceOperationKind.Create, ResourceOperationKind.Delete, ResourceOperationKind.Rename));
+		workspaceCap.setWorkspaceEdit(workspaceEdit);
 		clientCap.setWorkspace(workspaceCap);
 		initParams.setCapabilities(clientCap);
 		initResult = getServer().initialize(initParams).get();
@@ -320,8 +350,48 @@ public class LanguageServerHarness {
 				}
 
 				@Override
-				public CompletableFuture<JavadocResponse> javadoc(JavadocParams params) {
-					return CompletableFuture.completedFuture(new JavadocResponse());
+				public CompletableFuture<MarkupContent> javadoc(JavaDataParams params) {
+					return CompletableFuture.completedFuture(null);
+				}
+
+				@Override
+				public CompletableFuture<TypeData> javaType(JavaDataParams params) {
+					return CompletableFuture.completedFuture(null);
+				}
+
+				@Override
+				public CompletableFuture<String> javadocHoverLink(JavaDataParams params) {
+					return CompletableFuture.completedFuture(null);
+				}
+
+				@Override
+				public CompletableFuture<Location> javaLocation(JavaDataParams params) {
+					return CompletableFuture.completedFuture(null);
+				}
+
+				@Override
+				public CompletableFuture<List<TypeDescriptorData>> javaSearchTypes(JavaSearchParams params) {
+					return CompletableFuture.completedFuture(Collections.emptyList());
+				}
+
+				@Override
+				public CompletableFuture<List<String>> javaSearchPackages(JavaSearchParams params) {
+					return CompletableFuture.completedFuture(Collections.emptyList());
+				}
+
+				@Override
+				public CompletableFuture<List<Either<TypeDescriptorData, TypeData>>> javaSubTypes(JavaTypeHierarchyParams params) {
+					return CompletableFuture.completedFuture(Collections.emptyList());
+				}
+
+				@Override
+				public CompletableFuture<List<Either<TypeDescriptorData, TypeData>>> javaSuperTypes(JavaTypeHierarchyParams params) {
+					return CompletableFuture.completedFuture(Collections.emptyList());
+				}
+
+				@Override
+				public CompletableFuture<List<JavaCodeCompleteData>> javaCodeComplete(JavaCodeCompleteParams params) {
+					return CompletableFuture.completedFuture(Collections.emptyList());
 				}
 
 			});
@@ -528,8 +598,7 @@ public class LanguageServerHarness {
 	}
 
 	public Hover getHover(TextDocumentInfo document, Position cursor) throws Exception {
-
-		TextDocumentPositionParams params = new TextDocumentPositionParams();
+		HoverParams params = new HoverParams();
 		params.setPosition(cursor);
 		params.setTextDocument(document.getId());
 		return getServer().getTextDocumentService().hover(params ).get();
@@ -563,10 +632,19 @@ public class LanguageServerHarness {
 	 * Create editor with 'default' language id.
 	 */
 	public Editor newEditor(String contents) throws Exception {
+		ensureInitialized();
 		return newEditor(getDefaultLanguageId(), contents);
 	}
 
+	public synchronized Editor newEditorWithExt(LanguageId languageId, String extension, String contents) throws Exception {
+		ensureInitialized();
+		Editor editor = new Editor(this, contents, languageId, extension);
+		activeEditors.add(editor);
+		return editor;
+	}
+
 	public synchronized Editor newEditor(LanguageId languageId, String contents) throws Exception {
+		ensureInitialized();
 		Editor editor = new Editor(this, contents, languageId);
 		activeEditors.add(editor);
 		return editor;
@@ -574,6 +652,7 @@ public class LanguageServerHarness {
 
 
 	public synchronized Editor newEditor(LanguageId languageId, String contents, String resourceUri) throws Exception {
+		ensureInitialized();
 		TextDocumentInfo doc = docFromResource(contents, resourceUri, languageId);
 		Editor editor = new Editor(this, doc, contents, languageId);
 		activeEditors.add(editor);
@@ -591,11 +670,11 @@ public class LanguageServerHarness {
 		return docinfo;
 	}
 
-	public synchronized TextDocumentInfo createWorkingCopy(String contents, LanguageId languageId) throws Exception {
+	public synchronized TextDocumentInfo createWorkingCopy(String contents, LanguageId languageId, String extension) throws Exception {
 		TextDocumentItem doc = new TextDocumentItem();
 		doc.setLanguageId(languageId.getId());
 		doc.setText(contents);
-		doc.setUri(createTempUri());
+		doc.setUri(createTempUri(extension));
 		doc.setVersion(getFirstVersion());
 		TextDocumentInfo docinfo = new TextDocumentInfo(doc);
 		documents.put(docinfo.getUri(), docinfo);
@@ -606,8 +685,11 @@ public class LanguageServerHarness {
 		return 1;
 	}
 
-	public String createTempUri() throws Exception {
-		return File.createTempFile("workingcopy", getFileExtension()).toURI().toString();
+	public String createTempUri(String extension) throws Exception {
+		if (extension == null) {
+			extension = getFileExtension();
+		}
+		return File.createTempFile("workingcopy", extension).toURI().toString();
 	}
 
 	public void assertCompletion(String textBefore, String expectTextAfter) throws Exception {
@@ -645,9 +727,9 @@ public class LanguageServerHarness {
 		assertEquals(expected, completion.getLabel());
 	}
 
-	public List<? extends Location> getDefinitions(TextDocumentPositionParams params) throws Exception {
+	public List<? extends LocationLink> getDefinitions(DefinitionParams params) throws Exception {
 		waitForReconcile(); //goto definitions relies on reconciler infos! Must wait or race condition breaking tests occasionally.
-		return getServer().getTextDocumentService().definition(params).get();
+		return getServer().getTextDocumentService().definition(params).get().getRight();
 	}
 
 	public static void assertDocumentation(String expected, CompletionItem completion) {
@@ -669,9 +751,10 @@ public class LanguageServerHarness {
 
 	public List<CodeAction> getCodeActions(TextDocumentInfo doc, Diagnostic problem) throws Exception {
 		CodeActionContext context = new CodeActionContext(ImmutableList.of(problem));
-		List<? extends Command> actions =
+		List<Either<Command, org.eclipse.lsp4j.CodeAction>> actions =
 				getServer().getTextDocumentService().codeAction(new CodeActionParams(doc.getId(), problem.getRange(), context)).get();
 		return actions.stream()
+				.map(e -> e.getLeft())
 				.map((command) -> new CodeAction(this, command))
 				.collect(Collectors.toList());
 	}
@@ -690,27 +773,92 @@ public class LanguageServerHarness {
 	}
 
 	private void perform(WorkspaceEdit workspaceEdit) throws Exception {
-		Assert.isNull("Versioned WorkspaceEdits not supported", workspaceEdit.getDocumentChanges());
-		for (Entry<String, List<TextEdit>> entry : workspaceEdit.getChanges().entrySet()) {
-			String uri = entry.getKey();
-			TextDocumentInfo document = documents.get(uri);
-			assertNotNull("Can't apply edits to non-existing document: "+uri, document);
+		if (workspaceEdit.getDocumentChanges() == null) {
+			for (Entry<String, List<TextEdit>> entry : workspaceEdit.getChanges().entrySet()) {
+				String uri = entry.getKey();
+				TextDocumentInfo document = documents.get(uri);
+				assertNotNull("Can't apply edits to non-existing document: "+uri, document);
 
-			TextDocument workingDocument = new TextDocument(uri, document.getLanguageId());
-			workingDocument.setText(document.getText());
-			DocumentEdits edits = new DocumentEdits(workingDocument);
-			for (TextEdit edit : entry.getValue()) {
-				Range range = edit.getRange();
-				edits.replace(document.toOffset(range.getStart()), document.toOffset(range.getEnd()), edit.getNewText());
+				TextDocument workingDocument = new TextDocument(uri, document.getLanguageId());
+				workingDocument.setText(document.getText());
+				DocumentEdits edits = new DocumentEdits(workingDocument, false);
+				for (TextEdit edit : entry.getValue()) {
+					Range range = edit.getRange();
+					edits.replace(document.toOffset(range.getStart()), document.toOffset(range.getEnd()), edit.getNewText());
+				}
+				edits.apply(workingDocument);
+				Editor editor = getOpenEditor(uri);
+				if (editor!=null) {
+					editor.setRawText(workingDocument.get());
+				} else {
+					changeDocument(uri, workingDocument.get());
+				}
 			}
-			edits.apply(workingDocument);
-			Editor editor = getOpenEditor(uri);
-			if (editor!=null) {
-				editor.setRawText(workingDocument.get());
-			} else {
-				changeDocument(uri, workingDocument.get());
+		} else {
+			for (Either<TextDocumentEdit, ResourceOperation> edit : workspaceEdit.getDocumentChanges()) {
+				if (edit.isLeft()) {
+					TextDocumentEdit docEdit = edit.getLeft();
+					String uri = docEdit.getTextDocument().getUri();
+					TextDocumentInfo docInfo = documents.get(uri);
+					// IMORTANT: Document version is ignored for now
+					Path path = Paths.get(URI.create(uri));
+					String content = docInfo == null ? IOUtil.toString(Files.newInputStream(path)) : docInfo.getText();
+					TextDocument workingDocument = new TextDocument(uri, docInfo == null ? (LanguageId) null : docInfo.getLanguageId(), 0, content);
+					DocumentEdits edits = new DocumentEdits(workingDocument, false);
+					for (TextEdit textEdit : docEdit.getEdits()) {
+						Range range = textEdit.getRange();
+						edits.replace(workingDocument.toOffset(range.getStart()), workingDocument.toOffset(range.getEnd()), textEdit.getNewText());
+						edits.apply(workingDocument);
+					}
+					Editor editor = getOpenEditor(uri);
+					if (editor!=null) {
+						editor.setRawText(workingDocument.get());
+					} else {
+						if (docInfo == null) {
+							Files.write(path, workingDocument.get().getBytes());
+						} else {
+							changeDocument(uri, workingDocument.get());
+						}
+					}
+				} else if (edit.isRight()) {
+					ResourceOperation resourceOperation = edit.getRight();
+					if (resourceOperation instanceof CreateFile) {
+						CreateFile createFileOp = (CreateFile) resourceOperation;
+
+						Path path = Paths.get(URI.create(createFileOp.getUri()));
+						if (Files.exists(path)) {
+							if (createFileOp.getOptions().getOverwrite() || !createFileOp.getOptions().getIgnoreIfExists()) {
+								String content = IOUtil.toString(Files.newInputStream(path));
+								Files.write(path, content.getBytes());
+							}
+						} else {
+							if (!Files.exists(path.getParent())) {
+								Files.createDirectories(path.getParent());
+							}
+							Files.createFile(path);
+						}
+					} else if (resourceOperation instanceof RenameFile) {
+						RenameFile rename = (RenameFile) resourceOperation;
+						Path oldPath = Paths.get(URI.create(rename.getOldUri()));
+						Path newPath = Paths.get(URI.create(rename.getNewUri()));
+						String content = IOUtil.toString(Files.newInputStream(oldPath));
+						Files.delete(oldPath);
+						if (!Files.exists(newPath.getParent())) {
+							Files.createDirectories(newPath.getParent());
+						}
+						Files.createFile(newPath);
+						Files.write(newPath, content.getBytes());
+					} else if (resourceOperation instanceof DeleteFile) {
+						DeleteFile delete = (DeleteFile) resourceOperation;
+						Files.delete(Paths.get(URI.create(delete.getUri())));
+					}
+				}
 			}
 		}
+	}
+
+	private static void createFile(Path path) {
+
 	}
 
 	private Editor getOpenEditor(String uri) {
@@ -729,10 +877,16 @@ public class LanguageServerHarness {
 				.collect(Collectors.toList());
 	}
 
+	public List<? extends DocumentSymbol> getHierarchicalDocumentSymbols(TextDocumentInfo document) throws Exception {
+		waitForReconcile(); //TODO: if the server works properly this shouldn't be needed it should do that internally itself somehow.
+		DocumentSymbolParams params = new DocumentSymbolParams(document.getId());
+		return getServer().getTextDocumentService().documentSymbol(params).get().stream().map(e -> e.getRight()).collect(Collectors.toList());
+	}
+
 	public List<? extends SymbolInformation> getDocumentSymbols(TextDocumentInfo document) throws Exception {
 		waitForReconcile(); //TODO: if the server works properly this shouldn't be needed it should do that internally itself somehow.
 		DocumentSymbolParams params = new DocumentSymbolParams(document.getId());
-		return getServer().getTextDocumentService().documentSymbol(params).get();
+		return getServer().getTextDocumentService().documentSymbol(params).get().stream().map(e -> e.getLeft()).collect(Collectors.toList());
 	}
 
 	/**
@@ -795,5 +949,20 @@ public class LanguageServerHarness {
 
 	public SimpleLanguageServer getServer() {
 		return server==null ? null : server.getServer();
+	}
+
+	public void enableHierarchicalDocumentSymbols(boolean b) {
+		this.enableHierarchicalDocumentSymbols = b;
+	}
+
+	public Collection<SymbolInformation> getWorkspaceSymbols(String query) throws Exception {
+		WorkspaceSymbolParams params = new WorkspaceSymbolParams(query);
+		List<? extends SymbolInformation> r = server.getWorkspaceService().symbol(params).get();
+		return ImmutableList.copyOf(r);
+	}
+
+	public void assertWorkspaceSymbols(String query, String... expectedSymbols) throws Exception {
+		Set<String> actualSymbols = getWorkspaceSymbols(query).stream().map(sym -> sym.getName()).collect(Collectors.toSet());
+		assertEquals(ImmutableSet.copyOf(expectedSymbols), actualSymbols);
 	}
 }

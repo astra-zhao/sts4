@@ -3,7 +3,7 @@
  * All rights reserved. This program and the accompanying materials
  * are made available under the terms of the Eclipse Public License v1.0
  * which accompanies this distribution, and is available at
- * http://www.eclipse.org/legal/epl-v10.html
+ * https://www.eclipse.org/legal/epl-v10.html
  *
  * Contributors:
  *     Pivotal, Inc. - initial API and implementation
@@ -40,16 +40,15 @@ public class ToggleComment extends AbstractHandler {
 	@Override
 	public Object execute(ExecutionEvent event) throws ExecutionException {
 		try {
-			ISelection sel = HandlerUtil.getCurrentSelection(event);
-			if (sel instanceof TextSelection) {
-				TextSelection textSel = (TextSelection) sel;
-				int startLine = textSel.getStartLine();
-				int endLine = textSel.getEndLine();
-	
-				IEditorInput editorInput = HandlerUtil.getActiveEditorInput(event);
-				IEditorPart editor = HandlerUtil.getActiveEditor(event);
-				if (editor instanceof TextEditor) {
-					TextEditor textEditor = (TextEditor) editor;
+			IEditorInput editorInput = HandlerUtil.getActiveEditorInput(event);
+			IEditorPart editor = HandlerUtil.getActiveEditor(event);
+			if (editor instanceof TextEditor) {
+				TextEditor textEditor = (TextEditor) editor;
+				ISelection sel = textEditor.getSelectionProvider().getSelection();
+				if (sel instanceof TextSelection) {
+					TextSelection textSel = (TextSelection) sel;
+					int startLine = textSel.getStartLine();
+					int endLine = textSel.getEndLine();
 					IDocument doc = textEditor.getDocumentProvider().getDocument(editorInput);
 					if (doc!=null) {
 						

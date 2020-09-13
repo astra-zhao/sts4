@@ -3,13 +3,14 @@
  * All rights reserved. This program and the accompanying materials
  * are made available under the terms of the Eclipse Public License v1.0
  * which accompanies this distribution, and is available at
- * http://www.eclipse.org/legal/epl-v10.html
+ * https://www.eclipse.org/legal/epl-v10.html
  *
  * Contributors:
  *     Pivotal, Inc. - initial API and implementation
  *******************************************************************************/
 package org.springframework.ide.vscode.commons.yaml.schema;
 
+import org.springframework.ide.vscode.commons.languageserver.util.PlaceHolderString;
 import org.springframework.ide.vscode.commons.util.Renderable;
 
 public interface YValueHint {
@@ -22,7 +23,7 @@ public interface YValueHint {
 	 * on the next line and indented to line-up relative to the indentation of
 	 * the line where the value itself is being inserted.
 	 */
-	String getExtraInsertion();
+	PlaceHolderString getExtraInsertion();
 
 	/**
 	 * An optional documentation string (i.e. shown in javadoc side hover in Eclipse style

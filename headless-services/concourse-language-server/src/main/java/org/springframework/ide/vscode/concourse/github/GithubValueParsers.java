@@ -3,7 +3,7 @@
  * All rights reserved. This program and the accompanying materials
  * are made available under the terms of the Eclipse Public License v1.0
  * which accompanies this distribution, and is available at
- * http://www.eclipse.org/legal/epl-v10.html
+ * https://www.eclipse.org/legal/epl-v10.html
  *
  * Contributors:
  *     Pivotal, Inc. - initial API and implementation
@@ -89,10 +89,14 @@ public class GithubValueParsers {
 				for (String expectedPrefix : GithubRepoContentAssistant.URI_PREFIXES) {
 					int lastChar = expectedPrefix.length()-1;
 					if (str.startsWith(expectedPrefix.substring(0, lastChar))) {
-						if (str.charAt(lastChar)==expectedPrefix.charAt(lastChar)) {
+						char actualSeparator = str.safeCharAt(lastChar);
+						char expectedSeparator = expectedPrefix.charAt(lastChar);
+						if (actualSeparator==expectedSeparator) {
 							return expectedPrefix;
 						}
-						throw new ValueParseException("Expecting a '"+expectedPrefix.charAt(lastChar)+"'", lastChar, lastChar+1);
+						if (actualSeparator==':' || actualSeparator == '/') {
+							throw new ValueParseException("Expecting a '"+expectedSeparator+"'", lastChar, lastChar+1);
+						}
 					}
 				}
 				return null;

@@ -3,7 +3,7 @@
  * All rights reserved. This program and the accompanying materials
  * are made available under the terms of the Eclipse Public License v1.0
  * which accompanies this distribution, and is available at
- * http://www.eclipse.org/legal/epl-v10.html
+ * https://www.eclipse.org/legal/epl-v10.html
  *
  * Contributors:
  *     Pivotal, Inc. - initial API and implementation
@@ -12,15 +12,18 @@ package org.springframework.ide.vscode.concourse;
 
 import java.util.List;
 
+import javax.annotation.PostConstruct;
+
 import org.eclipse.lsp4j.CompletionList;
-import org.eclipse.lsp4j.DiagnosticSeverity;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
+import org.springframework.beans.factory.InitializingBean;
+import org.springframework.beans.factory.annotation.Autowired;
+import org.springframework.context.ApplicationContext;
 import org.springframework.ide.vscode.commons.languageserver.completion.VscodeCompletionEngineAdapter;
-import org.springframework.ide.vscode.commons.languageserver.config.LanguageServerInitializer;
 import org.springframework.ide.vscode.commons.languageserver.hover.HoverInfoProvider;
 import org.springframework.ide.vscode.commons.languageserver.hover.VscodeHoverEngineAdapter;
 import org.springframework.ide.vscode.commons.languageserver.reconcile.IReconcileEngine;
-import org.springframework.ide.vscode.commons.languageserver.reconcile.ProblemType;
-import org.springframework.ide.vscode.commons.languageserver.reconcile.ReconcileProblem;
 import org.springframework.ide.vscode.commons.languageserver.util.DocumentSymbolHandler;
 import org.springframework.ide.vscode.commons.languageserver.util.SimpleLanguageServer;
 import org.springframework.ide.vscode.commons.languageserver.util.SimpleTextDocumentService;
@@ -33,61 +36,61 @@ import org.springframework.ide.vscode.commons.yaml.completion.YamlCompletionEngi
 import org.springframework.ide.vscode.commons.yaml.completion.YamlCompletionEngineOptions;
 import org.springframework.ide.vscode.commons.yaml.hover.YamlHoverInfoProvider;
 import org.springframework.ide.vscode.commons.yaml.quickfix.YamlQuickfixes;
+import org.springframework.ide.vscode.commons.yaml.reconcile.ASTTypeCache;
 import org.springframework.ide.vscode.commons.yaml.reconcile.TypeBasedYamlSymbolHandler;
 import org.springframework.ide.vscode.commons.yaml.reconcile.YamlSchemaBasedReconcileEngine;
-import org.springframework.ide.vscode.commons.yaml.reconcile.YamlSchemaProblems;
+import org.springframework.ide.vscode.commons.yaml.reconcile.TypeBasedYamlHierarchicalSymbolHandler.HierarchicalDefType;
 import org.springframework.ide.vscode.commons.yaml.schema.YType;
 import org.springframework.ide.vscode.commons.yaml.schema.YamlSchema;
 import org.springframework.ide.vscode.commons.yaml.snippet.SchemaBasedSnippetGenerator;
 import org.springframework.ide.vscode.commons.yaml.structure.YamlStructureProvider;
 import org.springframework.ide.vscode.concourse.github.GithubInfoProvider;
 import org.springframework.stereotype.Component;
-import org.springframework.util.Assert;
 
 import com.google.common.collect.ImmutableList;
 
 import reactor.core.publisher.Mono;
 
 @Component
-public class ConcourseLanguageServerInitializer implements LanguageServerInitializer {
+public class ConcourseLanguageServerInitializer {
+
+	private static final Logger log = LoggerFactory.getLogger(ConcourseLanguageServerInitializer.class);
 
 	private final YamlCompletionEngineOptions COMPLETION_OPTIONS = YamlCompletionEngineOptions.DEFAULT;
-	private final GithubInfoProvider github;
 	private final YamlStructureProvider structureProvider = YamlStructureProvider.DEFAULT;
-
-	private SimpleLanguageServer server;
-	private ConcourseModel models;
 
 	private SchemaSpecificPieces forPipelines;
 	private SchemaSpecificPieces forTasks;
 	private YamlQuickfixes yamlQuickfixes;
 	private YamlASTProvider currentAsts;
 
-	public ConcourseLanguageServerInitializer(GithubInfoProvider github) {
-		this.github = github;
-	}
+	@Autowired private SimpleLanguageServer server;
+	@Autowired private GithubInfoProvider github;
+	@Autowired private ASTTypeCache astTypeCache;
+	@Autowired private ApplicationContext appContext;
+	@Autowired private ConcourseModel models;
+	@Autowired private PipelineYmlSchema pipelineSchema;
 
 	private class SchemaSpecificPieces {
 
 		final VscodeCompletionEngineAdapter completionEngine;
 		final VscodeHoverEngineAdapter hoverEngine;
 		final YamlSchemaBasedReconcileEngine reconcileEngine;
-		final DocumentSymbolHandler symbolHandler;
+//		final DocumentSymbolHandler symbolHandler;
 
-		SchemaSpecificPieces(YamlSchema schema, List<YType> definitionTypes) {
+		SchemaSpecificPieces(YamlSchema schema, List<YType> definitionTypes, List<HierarchicalDefType> hierarchicalDefinitions) {
 			SchemaBasedYamlAssistContextProvider contextProvider = new SchemaBasedYamlAssistContextProvider(schema);
 			YamlCompletionEngine yamlCompletionEngine = new YamlCompletionEngine(structureProvider, contextProvider, COMPLETION_OPTIONS);
-			this.completionEngine = server.createCompletionEngineAdapter(server, yamlCompletionEngine);
+			this.completionEngine = server.createCompletionEngineAdapter(yamlCompletionEngine);
 
 			HoverInfoProvider infoProvider = new YamlHoverInfoProvider(currentAsts, structureProvider, contextProvider);
 			this.hoverEngine = new VscodeHoverEngineAdapter(server, infoProvider);
 
-			this.reconcileEngine = new YamlSchemaBasedReconcileEngine(currentAsts, schema, yamlQuickfixes);
-			reconcileEngine.setTypeCollector(models.getAstTypeCache());
+			this.reconcileEngine = new YamlSchemaBasedReconcileEngine(currentAsts, schema, yamlQuickfixes, appContext);
 
-			this.symbolHandler = CollectionUtil.hasElements(definitionTypes)
-					? new TypeBasedYamlSymbolHandler(server.getTextDocumentService(), models.getAstTypeCache(), definitionTypes)
-					: DocumentSymbolHandler.NO_SYMBOLS;
+//			this.symbolHandler = CollectionUtil.hasElements(definitionTypes)
+//					? new TypeBasedYamlSymbolHandler(server.getTextDocumentService(), astTypeCache, definitionTypes)
+//					: DocumentSymbolHandler.NO_SYMBOLS;
 		}
 
 		public void setMaxCompletions(int max) {
@@ -96,6 +99,7 @@ public class ConcourseLanguageServerInitializer implements LanguageServerInitial
 	}
 
 	public void enableSnippets(PipelineYmlSchema schema, boolean enable) {
+		//TODO: move to where schema bean is defined?
 		if (enable) {
 			schema.f.setSnippetProvider(new SchemaBasedSnippetGenerator(schema.getTypeUtil(), server::createSnippetBuilder));
 		} else {
@@ -103,20 +107,16 @@ public class ConcourseLanguageServerInitializer implements LanguageServerInitial
 		}
 	}
 
-	@Override
-	public void initialize(SimpleLanguageServer server) throws Exception {
-		Assert.isNull(this.server, "This initializer should only be used once");
-		this.server = server;
-		this.models = new ConcourseModel(server);
+	@PostConstruct
+	public void afterPropertiesSet() throws Exception {
 		this.currentAsts = models.getAstCache().getAstProvider(false);
-		PipelineYmlSchema pipelineSchema = new PipelineYmlSchema(models, github);
 		enableSnippets(pipelineSchema, true);
 		SimpleTextDocumentService documents = server.getTextDocumentService();
 		this.yamlQuickfixes = new YamlQuickfixes(server.getQuickfixRegistry(), documents, structureProvider);
 
-		this.forPipelines = new SchemaSpecificPieces(pipelineSchema, pipelineSchema.getDefinitionTypes());
-		this.forTasks = new SchemaSpecificPieces(pipelineSchema.getTaskSchema(), null);
-		ConcourseDefinitionFinder definitionFinder = new ConcourseDefinitionFinder(server, models, pipelineSchema);
+		this.forPipelines = new SchemaSpecificPieces(pipelineSchema, pipelineSchema.getDefinitionTypes(), pipelineSchema.getHierarchicalDefinitionTypes());
+		this.forTasks = new SchemaSpecificPieces(pipelineSchema.getTaskSchema(), null, null);
+		ConcourseDefinitionFinder definitionFinder = new ConcourseDefinitionFinder(server, models, pipelineSchema, astTypeCache);
 
 //		SimpleWorkspaceService workspace = getWorkspaceService();
 		documents.onDidChangeContent(params -> {
@@ -157,29 +157,39 @@ public class ConcourseLanguageServerInitializer implements LanguageServerInitial
 			return item;
 		});
 		documents.onHover(params -> {
-			TextDocument doc = documents.get(params);
-			if (doc!=null) {
-				if (LanguageId.CONCOURSE_PIPELINE.equals(doc.getLanguageId())) {
-					return forPipelines.hoverEngine.handle(params);
-				} else if (LanguageId.CONCOURSE_TASK.equals(doc.getLanguageId())) {
-					return forTasks.hoverEngine.handle(params);
+			log.debug("Concourse hover handler starting");
+			try {
+				TextDocument doc = documents.get(params);
+				if (doc!=null) {
+					LanguageId languageId = doc.getLanguageId();
+					if (LanguageId.CONCOURSE_PIPELINE.equals(doc.getLanguageId())) {
+						return forPipelines.hoverEngine.handle(params);
+					} else if (LanguageId.CONCOURSE_TASK.equals(doc.getLanguageId())) {
+						return forTasks.hoverEngine.handle(params);
+					} else {
+						log.debug("No hovers because language-id = {}", languageId);
+					}
+				} else {
+					log.debug("No hovers because doc is null");
 				}
+				return SimpleTextDocumentService.NO_HOVER;
+			} finally {
+				log.debug("Concourse hover handler finished");
 			}
-			return SimpleTextDocumentService.NO_HOVER;
 		});
 		documents.onDefinition(definitionFinder);
-		documents.onDocumentSymbol((params) -> {
-			DocumentSymbolHandler handler = DocumentSymbolHandler.NO_SYMBOLS;
-			TextDocument doc = documents.getDocument(params.getTextDocument().getUri());
-			if (doc!=null) {
-				if (LanguageId.CONCOURSE_PIPELINE.equals(doc.getLanguageId())) {
-					handler = forPipelines.symbolHandler;
-				} else if (LanguageId.CONCOURSE_TASK.equals(doc.getLanguageId())) {
-					handler = forTasks.symbolHandler;
-				}
-			}
-			return handler.handle(params);
-		});
+//		documents.onDocumentSymbol((params) -> {
+//			DocumentSymbolHandler handler = DocumentSymbolHandler.NO_SYMBOLS;
+//			TextDocument doc = documents.getDocument(params.getTextDocument().getUri());
+//			if (doc!=null) {
+//				if (LanguageId.CONCOURSE_PIPELINE.equals(doc.getLanguageId())) {
+//					handler = forPipelines.symbolHandler;
+//				} else if (LanguageId.CONCOURSE_TASK.equals(doc.getLanguageId())) {
+//					handler = forTasks.symbolHandler;
+//				}
+//			}
+//			return handler.handle(params);
+//		});
 	}
 
 //	@Override

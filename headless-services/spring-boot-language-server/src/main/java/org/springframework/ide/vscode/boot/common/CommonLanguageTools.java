@@ -3,7 +3,7 @@
  * All rights reserved. This program and the accompanying materials
  * are made available under the terms of the Eclipse Public License v1.0
  * which accompanies this distribution, and is available at
- * http://www.eclipse.org/legal/epl-v10.html
+ * https://www.eclipse.org/legal/epl-v10.html
  *
  * Contributors:
  *     Pivotal, Inc. - initial API and implementation
@@ -33,6 +33,7 @@ import org.springframework.ide.vscode.commons.util.Log;
 import org.springframework.ide.vscode.commons.util.text.DocumentRegion;
 import org.springframework.ide.vscode.commons.util.text.LanguageId;
 import org.springframework.ide.vscode.commons.util.text.TextDocument;
+import org.springframework.ide.vscode.commons.yaml.path.YamlPathSegment;
 
 public class CommonLanguageTools {
 
@@ -69,7 +70,7 @@ public class CommonLanguageTools {
 
 	public static Collection<StsValueHint> getValueHints(FuzzyMap<PropertyInfo> index, TypeUtil typeUtil, String query, String propertyName, EnumCaseMode caseMode) {
 		Type type = getValueType(index, typeUtil, propertyName);
-		if (TypeUtil.isSequencable(type)) {
+		if (typeUtil.isSequencable(type)) {
 			//It is useful to provide content assist for the values in the list when entering a list
 			type = TypeUtil.getDomainType(type);
 		}
@@ -83,7 +84,16 @@ public class CommonLanguageTools {
 		{
 			PropertyInfo prop = index.findLongestCommonPrefixEntry(propertyName);
 			if (prop!=null) {
-				HintProvider hintProvider = prop.getHints(typeUtil, false);
+				HintProvider hintProvider = prop.getHints(typeUtil);
+				if (prop.getId().length()<propertyName.length()) {
+					//true prefix
+					//TODO: properly process remaining portion of property name
+					try {
+						hintProvider = hintProvider.traverse(YamlPathSegment.valueAt(0));
+					} catch (Exception e) {
+						Log.log(e);
+					}
+				}
 				if (!HintProviders.isNull(hintProvider)) {
 					allHints.addAll(hintProvider.getValueHints(query));
 				}

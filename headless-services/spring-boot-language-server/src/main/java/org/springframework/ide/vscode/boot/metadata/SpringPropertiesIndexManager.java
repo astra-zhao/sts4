@@ -3,7 +3,7 @@
  * All rights reserved. This program and the accompanying materials
  * are made available under the terms of the Eclipse Public License v1.0
  * which accompanies this distribution, and is available at
- * http://www.eclipse.org/legal/epl-v10.html
+ * https://www.eclipse.org/legal/epl-v10.html
  *
  * Contributors:
  *     Pivotal, Inc. - initial API and implementation
@@ -17,10 +17,12 @@ import org.springframework.ide.vscode.boot.metadata.util.ListenerManager;
 import org.springframework.ide.vscode.commons.java.IJavaProject;
 import org.springframework.ide.vscode.commons.languageserver.ProgressService;
 import org.springframework.ide.vscode.commons.languageserver.java.ProjectObserver;
+import org.springframework.ide.vscode.commons.util.FileObserver;
 import org.springframework.ide.vscode.commons.util.Log;
 
 import com.google.common.cache.Cache;
 import com.google.common.cache.CacheBuilder;
+import com.google.common.collect.ImmutableList;
 
 /**
  * Support for Reconciling, Content Assist and Hover Text in spring properties
@@ -36,12 +38,17 @@ public class SpringPropertiesIndexManager extends ListenerManager<Listener<Sprin
 	private final ValueProviderRegistry valueProviders;
 	private static int progressIdCt = 0;
 
-	public SpringPropertiesIndexManager(ValueProviderRegistry valueProviders, ProjectObserver projectObserver) {
+	public SpringPropertiesIndexManager(ValueProviderRegistry valueProviders, ProjectObserver projectObserver, FileObserver fileObserver) {
 		this.valueProviders = valueProviders;
 		this.indexes = CacheBuilder.newBuilder()
 				.build();
 		if (projectObserver != null) {
 			projectObserver.addListener(ProjectObserver.onAny(project -> indexes.invalidate(project)));
+		}
+		if (fileObserver!=null) {
+			fileObserver.onAnyChange(ImmutableList.of("**/*spring-configuration-metadata.json"), changed -> {
+				clear();
+			});
 		}
 	}
 

@@ -1,9 +1,9 @@
 /*******************************************************************************
- * Copyright (c) 2017, 2018 Pivotal, Inc.
+ * Copyright (c) 2017, 2019 Pivotal, Inc.
  * All rights reserved. This program and the accompanying materials
  * are made available under the terms of the Eclipse Public License v1.0
  * which accompanies this distribution, and is available at
- * http://www.eclipse.org/legal/epl-v10.html
+ * https://www.eclipse.org/legal/epl-v10.html
  *
  * Contributors:
  *     Pivotal, Inc. - initial API and implementation
@@ -12,20 +12,13 @@ package org.springframework.tooling.boot.ls;
 
 import static org.springframework.tooling.ls.eclipse.commons.preferences.LanguageServerConsolePreferenceConstants.SPRING_BOOT_SERVER;
 
-import java.io.File;
-import java.io.InputStream;
-import java.nio.file.Files;
-import java.nio.file.StandardCopyOption;
+import java.nio.file.Paths;
+import java.util.ArrayList;
+import java.util.List;
 
-import org.eclipse.core.runtime.FileLocator;
-import org.eclipse.core.runtime.Path;
-import org.eclipse.core.runtime.Platform;
-import org.osgi.framework.Bundle;
 import org.springframework.tooling.ls.eclipse.commons.JRE;
 import org.springframework.tooling.ls.eclipse.commons.JRE.MissingJDKException;
 import org.springframework.tooling.ls.eclipse.commons.STS4LanguageServerProcessStreamConnector;
-
-import com.google.common.collect.ImmutableList;
 
 /**
  * @author Martin Lippert
@@ -34,20 +27,46 @@ public class SpringBootLanguageServer extends STS4LanguageServerProcessStreamCon
 	
 	public SpringBootLanguageServer() {
 		super(SPRING_BOOT_SERVER);
-		setCommands(getJRE().jarLaunchCommand(getLanguageServerJARLocation(), 
-				ImmutableList.of(
-//					"-Xdebug",
-//					"-Xrunjdwp:server=y,transport=dt_socket,address=4000,suspend=n",
-					"-Dsts.lsp.client=eclipse",
-					"-Dlsp.lazy.completions.disable=true",
-					"-Dlsp.completions.indentation.enable=true",
-					"-Xmx1024m"
-				)
-		));
+		
+		initExplodedJarCommand(
+				Paths.get("servers", "spring-boot-language-server"),
+				"org.springframework.ide.vscode.boot.app.BootLanguagServerBootApp",
+				"application.properties",
+				getJVMArgs()
+		);
+		
 		setWorkingDirectory(getWorkingDirLocation());
 	}
 	
-	private JRE getJRE() {
+	private List<String> getJVMArgs() {
+		List<String> args = new ArrayList<>();
+		
+//		args.add("-Xdebug");
+//		args.add("-Xrunjdwp:server=y,transport=dt_socket,address=1044,suspend=n");
+		args.add("-Dlsp.completions.indentation.enable=true");
+		args.add("-Xmx1024m");
+		args.add("-XX:TieredStopAtLevel=1");
+		args.add("-noverify");
+		
+		addCustomJVMArgs(args);
+		
+		return args;
+	}
+
+	private void addCustomJVMArgs(List<String> args) {
+		String customArgs = System.getProperty("boot.ls.custom.vmargs");
+		
+		if (customArgs != null) {
+			String prefix = "";
+			String[] separateArgs = customArgs.split(",-");
+			for (String arg : separateArgs) {
+				args.add(prefix + arg);
+				prefix = "-";
+			}
+		}
+	}
+
+	protected JRE getJRE() {
 		try {
 			return JRE.findJRE(true);
 		} catch (MissingJDKException e) {
@@ -56,45 +75,8 @@ public class SpringBootLanguageServer extends STS4LanguageServerProcessStreamCon
 		}
 	}
 
-	protected String getLanguageServerJARLocation() {
-		String languageServer = "spring-boot-language-server-" + Constants.LANGUAGE_SERVER_VERSION;
-
-		Bundle bundle = Platform.getBundle(Constants.PLUGIN_ID);
-		String bundleVersion = bundle.getVersion().toString();
-
-		String languageServerLocalCopy = bundleVersion + "-" + languageServer;
-		
-		File dataFile = bundle.getDataFile(languageServerLocalCopy);
-		Exception error = null;
-		if (!dataFile.exists() || bundleVersion.endsWith("qualifier")) { // qualifier check to get the language server always copied in dev mode
-			try {
-				copyLanguageServerJAR(languageServer, languageServerLocalCopy);
-			}
-			catch (Exception e) {
-				error = e;
-			}
-		}
-		if (!dataFile.exists()) {
-			File userHome = new File(System.getProperty("user.home"));
-			File locallyBuiltJar = new File(
-					userHome, 
-					"git/sts4/headless-services/spring-boot-language-server/target/spring-boot-language-server-"+Constants.LANGUAGE_SERVER_VERSION
-			);
-			if (locallyBuiltJar.exists()) {
-				return locallyBuiltJar.getAbsolutePath();
-			}
-			if (error!=null) {
-				error.printStackTrace();
-			}
-		}
-		return dataFile.getAbsolutePath();
-	}
-	
-	protected void copyLanguageServerJAR(String languageServerJarName, String languageServerLocalCopy) throws Exception {
-		Bundle bundle = Platform.getBundle(Constants.PLUGIN_ID);
-		InputStream stream = FileLocator.openStream( bundle, new Path("servers/" + languageServerJarName), false );
-		
-		File dataFile = bundle.getDataFile(languageServerLocalCopy);
-		Files.copy(stream, dataFile.toPath(), StandardCopyOption.REPLACE_EXISTING);
+	@Override
+	protected String getPluginId() {
+		return Constants.PLUGIN_ID;
 	}
 }

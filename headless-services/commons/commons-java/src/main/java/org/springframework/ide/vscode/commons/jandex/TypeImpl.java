@@ -3,7 +3,7 @@
  * All rights reserved. This program and the accompanying materials
  * are made available under the terms of the Eclipse Public License v1.0
  * which accompanies this distribution, and is available at
- * http://www.eclipse.org/legal/epl-v10.html
+ * https://www.eclipse.org/legal/epl-v10.html
  *
  * Contributors:
  *     Pivotal, Inc. - initial API and implementation
@@ -11,7 +11,6 @@
 
 package org.springframework.ide.vscode.commons.jandex;
 
-import java.io.File;
 import java.util.List;
 import java.util.stream.Collectors;
 import java.util.stream.Stream;
@@ -25,6 +24,7 @@ import org.jboss.jandex.Type;
 import org.springframework.ide.vscode.commons.java.Flags;
 import org.springframework.ide.vscode.commons.java.IAnnotation;
 import org.springframework.ide.vscode.commons.java.IField;
+import org.springframework.ide.vscode.commons.java.IJavaModuleData;
 import org.springframework.ide.vscode.commons.java.IJavaType;
 import org.springframework.ide.vscode.commons.java.IJavadocProvider;
 import org.springframework.ide.vscode.commons.java.IMethod;
@@ -36,9 +36,9 @@ class TypeImpl implements IType {
 	private ClassInfo info;
 	private JandexIndex index;
 	private IJavadocProvider javadocProvider;
-	private File classpathContainer;
+	private IJavaModuleData classpathContainer;
 
-	TypeImpl(JandexIndex index, File classpathContainer, ClassInfo info, IJavadocProvider javadocProvider) {
+	TypeImpl(JandexIndex index, IJavaModuleData classpathContainer, ClassInfo info, IJavadocProvider javadocProvider) {
 		this.info = info;
 		this.index = index;
 		this.classpathContainer = classpathContainer;
@@ -154,7 +154,7 @@ class TypeImpl implements IType {
 	}
 
 	@Override
-	public File classpathContainer() {
+	public IJavaModuleData classpathContainer() {
 		return classpathContainer;
 	}
 

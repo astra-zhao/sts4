@@ -2,14 +2,14 @@ Manifest-Version: 1.0
 Bundle-ManifestVersion: 2
 Bundle-Name: Eclipse Language Server Commons
 Bundle-SymbolicName: org.springframework.tooling.ls.eclipse.commons;singleton:=true
-Bundle-Version: 4.0.2.qualifier
+Bundle-Version: 4.8.0.qualifier
 Bundle-Vendor: Pivotal, Inc.
 Require-Bundle: org.eclipse.jdt.launching;bundle-version="3.8.0",
  org.eclipse.ui,
  org.eclipse.core.runtime,
- org.eclipse.lsp4e;bundle-version="0.7.0",
- org.eclipse.lsp4j.jsonrpc;bundle-version="0.4.0",
- org.eclipse.lsp4j;bundle-version="0.4.0",
+ org.eclipse.lsp4e;bundle-version="0.9.0",
+ org.eclipse.lsp4j.jsonrpc;bundle-version="0.6.0",
+ org.eclipse.lsp4j;bundle-version="0.6.0",
  org.eclipse.ui.workbench.texteditor,
  org.eclipse.jface.text,
  com.google.guava,
@@ -22,7 +22,8 @@ Require-Bundle: org.eclipse.jdt.launching;bundle-version="3.8.0",
  org.apache.commons.lang3,
  org.eclipse.ui.genericeditor,
  org.eclipse.ui.editors,
- org.springsource.ide.eclipse.commons.core
+ org.springsource.ide.eclipse.commons.core,
+ org.eclipse.e4.ui.css.swt.theme
 Bundle-RequiredExecutionEnvironment: JavaSE-1.8
 Bundle-ActivationPolicy: lazy
 Export-Package: org.springframework.tooling.ls.eclipse.commons,

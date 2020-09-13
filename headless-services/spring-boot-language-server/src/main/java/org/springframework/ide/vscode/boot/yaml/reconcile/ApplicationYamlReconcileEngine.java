@@ -1,9 +1,9 @@
 /*******************************************************************************
- * Copyright (c) 2015, 2016 Pivotal, Inc.
+ * Copyright (c) 2015, 2019 Pivotal, Inc.
  * All rights reserved. This program and the accompanying materials
  * are made available under the terms of the Eclipse Public License v1.0
  * which accompanies this distribution, and is available at
- * http://www.eclipse.org/legal/epl-v10.html
+ * https://www.eclipse.org/legal/epl-v10.html
  *
  * Contributors:
  *     Pivotal, Inc. - initial API and implementation
@@ -12,10 +12,12 @@ package org.springframework.ide.vscode.boot.yaml.reconcile;
 
 import static org.springframework.ide.vscode.boot.yaml.reconcile.ApplicationYamlProblems.Type.YAML_SYNTAX_ERROR;
 
+import org.springframework.ide.vscode.boot.java.links.SourceLinks;
 import org.springframework.ide.vscode.boot.metadata.IndexNavigator;
 import org.springframework.ide.vscode.boot.metadata.PropertyInfo;
 import org.springframework.ide.vscode.boot.metadata.SpringPropertyIndexProvider;
 import org.springframework.ide.vscode.boot.metadata.types.TypeUtilProvider;
+import org.springframework.ide.vscode.boot.yaml.quickfix.AppYamlQuickfixes;
 import org.springframework.ide.vscode.commons.languageserver.reconcile.IProblemCollector;
 import org.springframework.ide.vscode.commons.languageserver.reconcile.ReconcileProblem;
 import org.springframework.ide.vscode.commons.util.FuzzyMap;
@@ -28,18 +30,23 @@ public class ApplicationYamlReconcileEngine extends YamlReconcileEngine {
 
 	private SpringPropertyIndexProvider indexProvider;
 	private TypeUtilProvider typeUtilProvider;
+	private AppYamlQuickfixes quickFixes;
+	private SourceLinks sourceLinks;
 
-	public ApplicationYamlReconcileEngine(YamlASTProvider astProvider, SpringPropertyIndexProvider indexProvider, TypeUtilProvider typeUtilProvider) {
+	public ApplicationYamlReconcileEngine(YamlASTProvider astProvider, SpringPropertyIndexProvider indexProvider, TypeUtilProvider typeUtilProvider, AppYamlQuickfixes quickFixes, SourceLinks sourceLinks) {
 		super(astProvider);
 		this.indexProvider = indexProvider;
 		this.typeUtilProvider = typeUtilProvider;
+		this.quickFixes = quickFixes;
+		this.sourceLinks = sourceLinks;
 	}
 
+	@Override
 	protected YamlASTReconciler getASTReconciler(IDocument doc, IProblemCollector problemCollector) {
-		FuzzyMap<PropertyInfo> index = indexProvider.getIndex(doc);
+		FuzzyMap<PropertyInfo> index = indexProvider.getIndex(doc).getProperties();
 		if (index!=null && !index.isEmpty()) {
 			IndexNavigator nav = IndexNavigator.with(index);
-			return new ApplicationYamlASTReconciler(problemCollector, nav, typeUtilProvider.getTypeUtil(doc));
+			return new ApplicationYamlASTReconciler(problemCollector, nav, typeUtilProvider.getTypeUtil(sourceLinks, doc), quickFixes);
 		}
 		return null;
 	}

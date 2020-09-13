@@ -1,9 +1,9 @@
 /*******************************************************************************
- * Copyright (c) 2018 Pivotal, Inc.
+ * Copyright (c) 2018, 2019 Pivotal, Inc.
  * All rights reserved. This program and the accompanying materials
  * are made available under the terms of the Eclipse Public License v1.0
  * which accompanies this distribution, and is available at
- * http://www.eclipse.org/legal/epl-v10.html
+ * https://www.eclipse.org/legal/epl-v10.html
  *
  * Contributors:
  *     Pivotal, Inc. - initial API and implementation
@@ -11,20 +11,28 @@
 package org.springframework.ide.vscode.boot.java.links;
 
 import java.io.File;
+import java.io.IOException;
+import java.net.JarURLConnection;
 import java.net.MalformedURLException;
 import java.net.URISyntaxException;
 import java.net.URL;
+import java.net.URLConnection;
 import java.nio.file.Files;
 import java.nio.file.Path;
 import java.nio.file.Paths;
 import java.util.Optional;
 
+import org.eclipse.lsp4j.TextDocumentIdentifier;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.ide.vscode.commons.java.IClasspath;
 import org.springframework.ide.vscode.commons.java.IClasspathUtil;
+import org.springframework.ide.vscode.commons.java.IJavaModuleData;
 import org.springframework.ide.vscode.commons.java.IJavaProject;
 import org.springframework.ide.vscode.commons.javadoc.TypeUrlProviderFromContainerUrl;
+import org.springframework.ide.vscode.commons.languageserver.java.JavaProjectFinder;
+import org.springframework.ide.vscode.commons.protocol.java.Classpath;
+import org.springframework.ide.vscode.commons.protocol.java.Classpath.CPE;
 
 /**
  * Instance is able to provide client specific URL links to navigate to a
@@ -36,6 +44,8 @@ import org.springframework.ide.vscode.commons.javadoc.TypeUrlProviderFromContain
  *
  */
 public interface SourceLinks {
+
+	static final String WEB_INF_CLASSES = "/WEB-INF/classes/";
 
 	static final Logger log = LoggerFactory.getLogger(SourceLinks.class);
 
@@ -54,7 +64,7 @@ public interface SourceLinks {
 			})
 			.map(url -> {
 				try {
-					return TypeUrlProviderFromContainerUrl.SOURCE_FOLDER_URL_SUPPLIER.url(url, fqName);
+					return TypeUrlProviderFromContainerUrl.SOURCE_FOLDER_URL_SUPPLIER.url(url, fqName, /* module */ null);
 				} catch (Exception e) {
 					log.warn("Failed to determine source URL from url={} fqName=", url, fqName, e);
 					return null;
@@ -73,31 +83,94 @@ public interface SourceLinks {
 	}
 
 	public static Optional<URL> source(IJavaProject project, String fqName) {
-		Optional<File> classpathResourceContainer = project.findClasspathResourceContainer(fqName);
 		// Try to find in a source JAR
-		Optional<URL> url = classpathResourceContainer
-				.flatMap(file -> project.sourceContainer(file))
-				.map(file -> {
+		IJavaModuleData classpathResourceContainer = project.getIndex().findClasspathResourceContainer(fqName);
+		if (classpathResourceContainer != null) {
+			Optional<URL> url = IClasspathUtil.sourceContainer(project.getClasspath(), classpathResourceContainer.getContainer()).map(file -> {
+				try {
+					return TypeUrlProviderFromContainerUrl.JAR_SOURCE_URL_PROVIDER.url(file, fqName, classpathResourceContainer.getModule());
+				} catch (Exception e) {
+					throw new IllegalStateException(e);
+				}
+			});
+
+			if (!url.isPresent()) {
+				// Try Source folder
+				url = sourceFromSourceFolder(fqName, project.getClasspath()).map(p -> {
 					try {
-						return TypeUrlProviderFromContainerUrl.JAR_SOURCE_URL_PROVIDER.url(file, fqName);
-					} catch (Exception e) {
+						return p.toUri().toURL();
+					} catch (MalformedURLException e) {
 						throw new IllegalStateException(e);
 					}
 				});
-
-
-		if (!url.isPresent()) {
-			// Try Source folder
-			url = classpathResourceContainer
-					.flatMap(file -> sourceFromSourceFolder(fqName, project.getClasspath()).map(p -> {
-						try {
-							return p.toUri().toURL();
-						} catch (MalformedURLException e) {
-							throw new IllegalStateException(e);
-						}
-					}));
+			}
+			return url;
 		}
-		return url;
+		return Optional.empty();
+	}
+
+	static Optional<String> sourceLinkUrlForClasspathResourceOnTomcat(SourceLinks sourceLinks, JavaProjectFinder projectFinder, String path) {
+		int indexOfWenInfClasses = path.indexOf(WEB_INF_CLASSES);
+		String projectName = Paths.get(path.substring(0, indexOfWenInfClasses)).getFileName().toString();
+		String fqName = path.substring(0, path.lastIndexOf(CLASS)).substring(indexOfWenInfClasses + WEB_INF_CLASSES.length()).replace('/', '.');
+		for (IJavaProject p : projectFinder.all()) {
+			if (projectName.equals(p.getElementName())) {
+				return sourceLinks.sourceLinkUrlForFQName(p, fqName);
+			}
+		}
+		return sourceLinks.sourceLinkUrlForFQName(null, fqName);
+	}
+
+	public static Optional<String> sourceLinkUrlForClasspathResource(SourceLinks sourceLinks, JavaProjectFinder projectFinder, String path) {
+		if (projectFinder != null) {
+			int idx = path.lastIndexOf(CLASS);
+			if (idx >= 0) {
+				int web_inf_index = path.indexOf(WEB_INF_CLASSES);
+				if (web_inf_index >= 0) {
+					return sourceLinkUrlForClasspathResourceOnTomcat(sourceLinks, projectFinder, path);
+				}
+				Path filePath = Paths.get(path.substring(0, idx));
+				IJavaProject project = projectFinder.find(new TextDocumentIdentifier(filePath.toUri().toString())).orElse(null);
+				if (project == null) {
+					try {
+						// URL for CF resources looks like jar:file:/home/vcap/app/lib/gs-rest-service-complete.jar!/hello/MyService.class
+						// The above doesn't wotk with "filePath.toUri().toURL()"
+						URL url = new URL(path.substring(0, idx));
+						if (url.getProtocol().equals("jar")) {
+							URLConnection connection = url.openConnection();
+							if (connection instanceof JarURLConnection) {
+								JarURLConnection jarConnection = (JarURLConnection) connection;
+								String fqName = jarConnection.getEntryName().replace(File.separator, ".");
+								return sourceLinks.sourceLinkUrlForFQName(null, fqName);
+							}
+						}
+					} catch (MalformedURLException e) {
+						log.error("", e);
+					} catch (IOException e) {
+						log.error("", e);
+					}
+				} else {
+					try {
+						for (CPE cpe : project.getClasspath().getClasspathEntries()) {
+							if (Classpath.isSource(cpe)) {
+								Path cpeBinaryPath = IClasspathUtil.binaryLocation(cpe).toPath();
+								if (filePath.startsWith(cpeBinaryPath)) {
+									String fqName = cpeBinaryPath.relativize(filePath).toString().replace(File.separator, ".");
+									Optional<String> link = sourceLinks.sourceLinkUrlForFQName(project, fqName);
+									if (link.isPresent()) {
+										return link;
+									}
+								}
+							}
+						}
+					} catch (Exception e) {
+						log.error("", e);
+					}
+				}
+
+			}
+		}
+		return Optional.empty();
 	}
 
 
@@ -115,7 +188,7 @@ public interface SourceLinks {
 	 * @param path the path to the classpath resource
 	 * @return the link URL optional
 	 */
-	Optional<String> sourceLinkUrlForClasspathResource(IJavaProject project, String path);
+	Optional<String> sourceLinkUrlForClasspathResource(String path);
 
 	/**
 	 * Creates link to a file specified by it's path

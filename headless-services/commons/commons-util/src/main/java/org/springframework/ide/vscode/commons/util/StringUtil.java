@@ -3,7 +3,7 @@
  * All rights reserved. This program and the accompanying materials
  * are made available under the terms of the Eclipse Public License v1.0
  * which accompanies this distribution, and is available at
- * http://www.eclipse.org/legal/epl-v10.html
+ * https://www.eclipse.org/legal/epl-v10.html
  *
  * Contributors:
  *     Pivotal, Inc. - initial API and implementation
@@ -20,6 +20,7 @@ import java.util.List;
 import java.util.Optional;
 import java.util.regex.Matcher;
 import java.util.regex.Pattern;
+import java.util.stream.Stream;
 
 import com.google.common.base.Strings;
 
@@ -77,14 +78,34 @@ public class StringUtil {
 		return "";
 	}
 
+	public static String commonPrefix(Stream<CharSequence> strings) {
+		CharSequence prefix = null;
+		for (CharSequence string : (Iterable<CharSequence>)strings::iterator) {
+			if (prefix==null) {
+				prefix = string;
+			} else {
+				int end = 0;
+				while (end<prefix.length() && end<string.length() && string.charAt(end)==prefix.charAt(end)) {
+					end++;
+				}
+				prefix = prefix.subSequence(0, end);
+			}
+		}
+		return prefix.toString();
+	}
+
 	public static String camelCaseToHyphens(String value) {
 		Matcher matcher = CAMEL_CASE_PATTERN.matcher(value);
 		StringBuffer result = new StringBuffer();
+		int start = 0;
 		while (matcher.find()) {
-			matcher.appendReplacement(result, matcher.group(1) + '-'
-					+ matcher.group(2).toLowerCase());
+			result.append(value.substring(start, matcher.start()));
+			result.append(matcher.group(1));
+			result.append('-');
+			result.append(matcher.group(2).toLowerCase());
+			start = matcher.end();
 		}
-		matcher.appendTail(result);
+		result.append(value.substring(start));
 		return result.toString();
 	}
 
@@ -137,6 +158,13 @@ public class StringUtil {
 	public static String upCaseFirstChar(String string) {
 		if (StringUtil.hasText(string)) {
 			return Character.toUpperCase(string.charAt(0)) + string.substring(1);
+		}
+		return "";
+	}
+
+	public static String lowerCaseFirstChar(String string) {
+		if (StringUtil.hasText(string)) {
+			return Character.toLowerCase(string.charAt(0)) + string.substring(1);
 		}
 		return "";
 	}
@@ -245,5 +273,9 @@ public class StringUtil {
 		}
 
 		return queryindex == queryChars.length;
+	}
+
+	public static String snakeCaseToHyphens(String snakeString) {
+		return snakeString.replace('_', '-').toLowerCase();
 	}
 }

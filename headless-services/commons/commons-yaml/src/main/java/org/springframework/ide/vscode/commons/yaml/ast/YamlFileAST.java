@@ -3,7 +3,7 @@
  * All rights reserved. This program and the accompanying materials
  * are made available under the terms of the Eclipse Public License v1.0
  * which accompanies this distribution, and is available at
- * http://www.eclipse.org/legal/epl-v10.html
+ * https://www.eclipse.org/legal/epl-v10.html
  *
  * Contributors:
  *     Pivotal, Inc. - initial API and implementation
@@ -16,6 +16,7 @@ import static org.springframework.ide.vscode.commons.yaml.ast.NodeUtil.contains;
 import java.util.ArrayList;
 import java.util.Collections;
 import java.util.List;
+import java.util.Set;
 
 import org.springframework.ide.vscode.commons.util.Collector;
 import org.springframework.ide.vscode.commons.util.IRequestor;
@@ -40,12 +41,9 @@ public class YamlFileAST {
 	private final List<Node> nodes;
 	private final IDocument doc;
 
-	public YamlFileAST(IDocument doc, Iterable<Node> iter) {
+	public YamlFileAST(IDocument doc, List<Node> nodes) {
 		this.doc = doc;
-		nodes = new ArrayList<Node>();
-		for (Node node : iter) {
-			nodes.add(node);
-		}
+		this.nodes = nodes;
 	}
 
 	public List<NodeRef<?>> findPath(int offset) {
@@ -158,6 +156,4 @@ public class YamlFileAST {
 	public IDocument getDocument() {
 		return doc;
 	}
-
-
 }

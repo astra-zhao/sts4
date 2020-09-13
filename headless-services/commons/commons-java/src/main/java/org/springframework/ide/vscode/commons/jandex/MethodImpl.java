@@ -3,7 +3,7 @@
  * All rights reserved. This program and the accompanying materials
  * are made available under the terms of the Eclipse Public License v1.0
  * which accompanies this distribution, and is available at
- * http://www.eclipse.org/legal/epl-v10.html
+ * https://www.eclipse.org/legal/epl-v10.html
  *
  * Contributors:
  *     Pivotal, Inc. - initial API and implementation
@@ -11,6 +11,7 @@
 
 package org.springframework.ide.vscode.commons.jandex;
 
+import java.util.List;
 import java.util.stream.Stream;
 
 import org.jboss.jandex.MethodInfo;
@@ -22,6 +23,12 @@ import org.springframework.ide.vscode.commons.java.IType;
 import org.springframework.ide.vscode.commons.javadoc.IJavadoc;
 
 public class MethodImpl implements IMethod {
+
+	/**
+	 * Test code may set this to manually inject test data to make up for some missing 
+	 * capabilities of Jandex (e.g. discovering the names of method parameters).
+	 */
+	public static TestDataProvider testDataProvider = null;
 
 	private static final String JANDEX_CONTRUCTOR_NAME = "<init>";
 
@@ -107,6 +114,15 @@ public class MethodImpl implements IMethod {
 	public String signature() {
 		//Return Jandex signature for now
 		return method.toString();
+	}
+
+	@Override
+	public List<String> getParameterNames() {
+		if (testDataProvider!=null) {
+			return testDataProvider.getParameterNames(this);
+		} else {
+			throw new UnsupportedOperationException("Not supported with jandex");
+		}
 	}
 
 }

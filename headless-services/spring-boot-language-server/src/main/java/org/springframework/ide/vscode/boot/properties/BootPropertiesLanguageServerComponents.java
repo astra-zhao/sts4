@@ -1,9 +1,9 @@
 /*******************************************************************************
- * Copyright (c) 2016, 2018 Pivotal, Inc.
+ * Copyright (c) 2016, 2019 Pivotal, Inc.
  * All rights reserved. This program and the accompanying materials
  * are made available under the terms of the Eclipse Public License v1.0
  * which accompanies this distribution, and is available at
- * http://www.eclipse.org/legal/epl-v10.html
+ * https://www.eclipse.org/legal/epl-v10.html
  *
  * Contributors:
  *     Pivotal, Inc. - initial API and implementation
@@ -15,11 +15,15 @@ import java.util.Set;
 
 import org.springframework.ide.vscode.boot.app.BootLanguageServerParams;
 import org.springframework.ide.vscode.boot.java.links.JavaElementLocationProvider;
+import org.springframework.ide.vscode.boot.java.links.SourceLinks;
 import org.springframework.ide.vscode.boot.metadata.SpringPropertyIndexProvider;
 import org.springframework.ide.vscode.boot.metadata.types.TypeUtilProvider;
 import org.springframework.ide.vscode.boot.properties.completions.SpringPropertiesCompletionEngine;
 import org.springframework.ide.vscode.boot.properties.hover.PropertiesHoverInfoProvider;
+import org.springframework.ide.vscode.boot.properties.quickfix.AppPropertiesQuickFixes;
+import org.springframework.ide.vscode.boot.properties.quickfix.CommonQuickfixes;
 import org.springframework.ide.vscode.boot.properties.reconcile.SpringPropertiesReconcileEngine;
+import org.springframework.ide.vscode.boot.yaml.quickfix.AppYamlQuickfixes;
 import org.springframework.ide.vscode.boot.yaml.reconcile.ApplicationYamlReconcileEngine;
 import org.springframework.ide.vscode.commons.languageserver.completion.ICompletionEngine;
 import org.springframework.ide.vscode.commons.languageserver.composable.LanguageServerComponents;
@@ -51,8 +55,8 @@ import com.google.common.collect.ImmutableSet;
  */
 public class BootPropertiesLanguageServerComponents implements LanguageServerComponents {
 
-	private static final String YML = ".yml";
-	private static final String PROPERTIES = ".properties";
+	public static final String[] YML = {".yml", ".yaml" } ;
+	public static final String PROPERTIES = ".properties";
 
 	private static final Set<LanguageId> LANGUAGES = ImmutableSet.of(
 			LanguageId.BOOT_PROPERTIES,
@@ -75,13 +79,18 @@ public class BootPropertiesLanguageServerComponents implements LanguageServerCom
 	private final SimpleLanguageServer server;
 	private YamlASTProvider parser;
 
+	private SpringPropertiesReconcileEngine propertiesReconciler;
+	private ApplicationYamlReconcileEngine ymlReconciler;
+	private SourceLinks sourceLinks;
+
 	public BootPropertiesLanguageServerComponents(
 			SimpleLanguageServer server,
 			BootLanguageServerParams serverParams,
 			JavaElementLocationProvider javaElementLocationProvider,
 			YamlASTProvider parser,
 			YamlStructureProvider yamlStructureProvider,
-			YamlAssistContextProvider yamlAssistContextProvider) {
+			YamlAssistContextProvider yamlAssistContextProvider,
+			SourceLinks sourceLinks) {
 		this.server = server;
 		this.parser = parser;
 		this.indexProvider = serverParams.indexProvider;
@@ -90,6 +99,25 @@ public class BootPropertiesLanguageServerComponents implements LanguageServerCom
 		this.projectObserver = serverParams.projectObserver;
 		this.yamlStructureProvider = yamlStructureProvider;
 		this.yamlAssistContextProvider = yamlAssistContextProvider;
+		this.sourceLinks = sourceLinks;
+
+		server.getClientCapabilities().thenAccept(clientCapabilities -> {
+			CommonQuickfixes commonQuickfixes = new CommonQuickfixes(server.getQuickfixRegistry(), javaProjectFinder,
+					clientCapabilities);
+			this.propertiesReconciler = new SpringPropertiesReconcileEngine(indexProvider,
+					typeUtilProvider, new AppPropertiesQuickFixes(server.getQuickfixRegistry(), commonQuickfixes), sourceLinks);
+			this.ymlReconciler = new ApplicationYamlReconcileEngine(parser, indexProvider, typeUtilProvider,
+					new AppYamlQuickfixes(server.getQuickfixRegistry(), server.getTextDocumentService(),
+							yamlStructureProvider, commonQuickfixes), sourceLinks);
+		});
+
+		indexProvider.onChange(() -> {
+			getReconcileEngine().ifPresent(reconciler -> {
+				server.getTextDocumentService().getAll().stream().filter(doc -> getInterestingLanguages().contains(doc.getLanguageId())).forEach(doc -> {
+					server.validateWith(doc.getId(), reconciler);
+				});
+			});
+		});
 
 	}
 
@@ -100,15 +128,19 @@ public class BootPropertiesLanguageServerComponents implements LanguageServerCom
 
 	@Override
 	public ICompletionEngine getCompletionEngine() {
-		ICompletionEngine propertiesCompletions = new SpringPropertiesCompletionEngine(indexProvider, typeUtilProvider, javaProjectFinder);
+		ICompletionEngine propertiesCompletions = new SpringPropertiesCompletionEngine(indexProvider, typeUtilProvider, javaProjectFinder, sourceLinks);
 		ICompletionEngine yamlCompletions = new YamlCompletionEngine(yamlStructureProvider, yamlAssistContextProvider, COMPLETION_OPTIONS);
 		return (TextDocument document, int offset) -> {
 			String uri = document.getUri();
 			if (uri!=null) {
 				if (uri.endsWith(PROPERTIES)) {
 					return propertiesCompletions.getCompletions(document, offset);
-				} else if (uri.endsWith(YML)) {
-					return yamlCompletions.getCompletions(document, offset);
+				} else {
+					for (String yml : YML) {
+						if (uri.endsWith(yml)) {
+							return yamlCompletions.getCompletions(document, offset);
+						}
+					}
 				}
 			}
 			return ImmutableList.of();
@@ -117,7 +149,7 @@ public class BootPropertiesLanguageServerComponents implements LanguageServerCom
 
 	@Override
 	public HoverHandler getHoverProvider() {
-		HoverInfoProvider propertiesHovers = new PropertiesHoverInfoProvider(indexProvider, typeUtilProvider, javaProjectFinder);
+		HoverInfoProvider propertiesHovers = new PropertiesHoverInfoProvider(indexProvider, typeUtilProvider, javaProjectFinder, sourceLinks);
 		HoverInfoProvider ymlHovers = new YamlHoverInfoProvider(parser, yamlStructureProvider, yamlAssistContextProvider);
 
 		HoverInfoProvider combined = (IDocument document, int offset) -> {
@@ -125,8 +157,12 @@ public class BootPropertiesLanguageServerComponents implements LanguageServerCom
 			if (uri!=null) {
 				if (uri.endsWith(PROPERTIES)) {
 					return propertiesHovers.getHoverInfo(document, offset);
-				} else if (uri.endsWith(YML)) {
-					return ymlHovers.getHoverInfo(document, offset);
+				} else {
+					for (String yml : YML) {
+						if (uri.endsWith(yml)) {
+							return ymlHovers.getHoverInfo(document, offset);
+						}
+					}
 				}
 			}
 			return null;
@@ -136,18 +172,19 @@ public class BootPropertiesLanguageServerComponents implements LanguageServerCom
 
 	@Override
 	public Optional<IReconcileEngine> getReconcileEngine() {
-		IReconcileEngine propertiesReconciler = new SpringPropertiesReconcileEngine(indexProvider, typeUtilProvider);
-		IReconcileEngine ymlReconciler = new ApplicationYamlReconcileEngine(parser, indexProvider, typeUtilProvider);
-
 		return Optional.of((doc, problemCollector) -> {
 			String uri = doc.getUri();
 			if (uri!=null) {
 				if (uri.endsWith(PROPERTIES)) {
 					propertiesReconciler.reconcile(doc, problemCollector);
 					return;
-				} else if (uri.endsWith(YML)) {
-					ymlReconciler.reconcile(doc, problemCollector);
-					return;
+				} else {
+					for (String yml : YML) {
+						if (uri.endsWith(yml)) {
+							ymlReconciler.reconcile(doc, problemCollector);
+							return;
+						}
+					}
 				}
 			}
 			//No real reconciler is applicable. So tell the problemCollector there are no problems.

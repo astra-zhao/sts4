@@ -3,7 +3,7 @@
  * All rights reserved. This program and the accompanying materials
  * are made available under the terms of the Eclipse Public License v1.0
  * which accompanies this distribution, and is available at
- * http://www.eclipse.org/legal/epl-v10.html
+ * https://www.eclipse.org/legal/epl-v10.html
  *
  * Contributors:
  *     Pivotal, Inc. - initial API and implementation
@@ -28,7 +28,7 @@ import reactor.core.Disposable;
  * <p>
  * Both real results and thrown exceptions are memoized.
  */
-public class MemoizingDisposableSupplier<T> implements Supplier<T>, Disposable {
+public class MemoizingDisposableSupplier<T> implements Disposable {
 	
 	private static Logger logger = LoggerFactory.getLogger(MemoizingDisposableSupplier.class);
 
@@ -73,8 +73,7 @@ public class MemoizingDisposableSupplier<T> implements Supplier<T>, Disposable {
 		}
 	}
 
-	@Override
-	public synchronized T get() {
+	public synchronized T get() throws Exception {
 		Assert.isLegal(!isDisposed());
 		if (shouldCompute()) {
 			lastComputed = System.currentTimeMillis();
@@ -91,7 +90,7 @@ public class MemoizingDisposableSupplier<T> implements Supplier<T>, Disposable {
 			}
 		}
 		if (failure!=null) {
-			throw ExceptionUtil.unchecked(failure);
+			throw ExceptionUtil.exception(failure);
 		} else {
 			return value;
 		}

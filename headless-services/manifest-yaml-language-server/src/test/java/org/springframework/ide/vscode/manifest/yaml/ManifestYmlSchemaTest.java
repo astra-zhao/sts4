@@ -3,7 +3,7 @@
  * All rights reserved. This program and the accompanying materials
  * are made available under the terms of the Eclipse Public License v1.0
  * which accompanies this distribution, and is available at
- * http://www.eclipse.org/legal/epl-v10.html
+ * https://www.eclipse.org/legal/epl-v10.html
  *
  * Contributors:
  *     Pivotal, Inc. - initial API and implementation
@@ -39,8 +39,10 @@ public class ManifestYmlSchemaTest {
 	private static final String[] NESTED_PROP_NAMES = {
 //			"applications",
 			"buildpack",
+			"buildpacks",
 			"command",
 			"disk_quota",
+			"docker",
 			"domain",
 			"domains",
 			"env",
@@ -65,6 +67,7 @@ public class ManifestYmlSchemaTest {
 	private static final String[] TOPLEVEL_PROP_NAMES = {
 			"applications",
 			"buildpack",
+			"buildpacks",
 			"command",
 			"disk_quota",
 			"domain",

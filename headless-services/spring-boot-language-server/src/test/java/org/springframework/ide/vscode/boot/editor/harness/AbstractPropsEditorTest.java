@@ -1,9 +1,9 @@
 /*******************************************************************************
- * Copyright (c) 2017 Pivotal, Inc.
+ * Copyright (c) 2017, 2019 Pivotal, Inc.
  * All rights reserved. This program and the accompanying materials
  * are made available under the terms of the Eclipse Public License v1.0
  * which accompanies this distribution, and is available at
- * http://www.eclipse.org/legal/epl-v10.html
+ * https://www.eclipse.org/legal/epl-v10.html
  *
  * Contributors:
  *     Pivotal, Inc. - initial API and implementation
@@ -14,18 +14,21 @@ import static org.junit.Assert.assertArrayEquals;
 import static org.junit.Assert.assertEquals;
 import static org.junit.Assert.fail;
 
+import java.util.ArrayList;
 import java.util.Arrays;
 import java.util.Collection;
 import java.util.HashSet;
 import java.util.List;
 import java.util.Optional;
 import java.util.Set;
+import java.util.stream.Collectors;
 
 import org.eclipse.lsp4j.CompletionItem;
 import org.eclipse.lsp4j.TextDocumentIdentifier;
 import org.junit.Before;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.ide.vscode.boot.app.BootLanguageServerInitializer;
+import org.springframework.ide.vscode.boot.configurationmetadata.Deprecation.Level;
 import org.springframework.ide.vscode.boot.editor.harness.PropertyIndexHarness.ItemConfigurer;
 import org.springframework.ide.vscode.boot.metadata.SpringPropertyIndexProvider;
 import org.springframework.ide.vscode.commons.java.IJavaProject;
@@ -36,6 +39,8 @@ import org.springframework.ide.vscode.commons.util.text.LanguageId;
 import org.springframework.ide.vscode.languageserver.testharness.Editor;
 import org.springframework.ide.vscode.languageserver.testharness.LanguageServerHarness;
 import org.springframework.ide.vscode.project.harness.ProjectsHarness;
+
+import com.google.common.collect.ImmutableList;
 
 public abstract class AbstractPropsEditorTest {
 
@@ -59,9 +64,12 @@ public abstract class AbstractPropsEditorTest {
 		public Optional<IJavaProject> find(TextDocumentIdentifier doc) {
 			return Optional.ofNullable(getTestProject());
 		}
+
+		@Override
+		public Collection<? extends IJavaProject> all() {
+			return getTestProject() == null ? ImmutableList.of() : ImmutableList.of(getTestProject());
+		}
 	}));
-
-
 
 	abstract public Editor newEditor(String contents) throws Exception;
 
@@ -119,6 +127,11 @@ public abstract class AbstractPropsEditorTest {
 		editor.assertCompletionDetails(expectLabel, expectDetail, expectDocumenation);
 	}
 
+	public void assertCompletionDetailsWithDeprecation(String editorText, String expectLabel, String expectDetail, String expectDocumenation, Boolean deprecated) throws Exception {
+		Editor editor = newEditor(editorText);
+		editor.assertCompletionDetailsWithDeprecation(expectLabel, expectDetail, expectDocumenation, deprecated);
+	}
+
 	public boolean isEmptyMetadata() {
 		return md.isEmpty();
 	}
@@ -135,6 +148,14 @@ public abstract class AbstractPropsEditorTest {
 		assertCompletions(text /*NONE*/);
 	}
 
+	public void assertNoCompletionWithLabel(String textBefore, String expectLabel) throws Exception {
+		Editor editor = newEditor(textBefore);
+		List<CompletionItem> completions = editor.getCompletions().stream().filter(c -> c.getLabel().equals(expectLabel)).collect(Collectors.toList());
+		if (!completions.isEmpty()) {
+			fail("Expecting no completions with label '"+expectLabel+"', but found some");
+		}
+	}
+
 	/**
 	 * Checks that completions contains a completion with a given display string (and check that
 	 * it applies as expected).
@@ -149,15 +170,22 @@ public abstract class AbstractPropsEditorTest {
 
 	private CompletionItem assertCompletionWithLabel(String expectLabel, List<CompletionItem> completions) {
 		StringBuilder found = new StringBuilder();
+		List<CompletionItem> matching = new ArrayList<CompletionItem>();
 		for (CompletionItem c : completions) {
 			String actualLabel = c.getLabel();
 			found.append(actualLabel+"\n");
 			if (actualLabel.equals(expectLabel)) {
-				return c;
+				matching.add(c);
 			}
 		}
-		fail("No completion found with label '"+expectLabel+"' in:\n"+found);
-		return null; //unreachable, but compiler doesn't know that.
+		if (matching.isEmpty()) {
+			fail("No completion found with label '"+expectLabel+"' in:\n"+found);
+		} else if (matching.size() > 1) {
+			fail("Multiple completion found with identical label '"+expectLabel+"' in:\n"+found);
+		} else {
+			return matching.get(0);
+		}
+		return null;
 	}
 
 	public void assertCompletionCount(int expected, String editorText) throws Exception {
@@ -166,11 +194,21 @@ public abstract class AbstractPropsEditorTest {
 	}
 
 	public void assertCompletionsDisplayString(String editorText, String... completionsLabels) throws Exception {
+		assertCompletionsDisplayString(editorText, false, completionsLabels);
+	}
+
+	public void assertCompletionsDisplayString(String editorText, boolean includeDetail, String... completionsLabels) throws Exception {
 		Editor editor = newEditor(editorText);
 		List<CompletionItem> completions = editor.getCompletions();
 		String[] actualLabels = new String[completions.size()];
 		for (int i = 0; i < actualLabels.length; i++) {
 			actualLabels[i] = completions.get(i).getLabel();
+			if (includeDetail) {
+				String detail = completions.get(i).getDetail();
+				if (detail != null && !detail.isEmpty()) {
+					actualLabels[i] += " : " + detail;
+				}
+			}
 		}
 		assertElements(actualLabels, completionsLabels);
 	}
@@ -222,18 +260,9 @@ public abstract class AbstractPropsEditorTest {
 		}
 	}
 
-	public void assertStyledCompletions(String editorText, StyledStringMatcher... expectStyles) throws Exception {
-		Editor editor = newEditor(editorText);
-		List<CompletionItem> completions = editor.getCompletions();
-		assertEquals("Wrong number of elements", expectStyles.length, completions.size());
-		for (int i = 0; i < expectStyles.length; i++) {
-			CompletionItem completion = completions.get(i);
-			throw new UnsupportedOperationException("Suport for styled labels not implemented");
-//			StyledString actualLabel = getStyledDisplayString(completion);
-//			expectStyles[i].match(actualLabel);
-		}
+	public void deprecate(String key, String replacedBy, String reason, Level level) {
+		md.deprecate(key, replacedBy, reason, level);
 	}
-
 
 	public void deprecate(String key, String replacedBy, String reason) {
 		md.deprecate(key, replacedBy, reason);

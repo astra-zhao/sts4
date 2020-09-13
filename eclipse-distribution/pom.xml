@@ -1,30 +1,42 @@
 <?xml version="1.0" encoding="UTF-8"?>
-<project xmlns="http://maven.apache.org/POM/4.0.0" xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance"
-	xsi:schemaLocation="http://maven.apache.org/POM/4.0.0 http://maven.apache.org/maven-v4_0_0.xsd">
+<project xmlns="https://maven.apache.org/POM/4.0.0" xmlns:xsi="https://www.w3.org/2001/XMLSchema-instance"
+	xsi:schemaLocation="https://maven.apache.org/POM/4.0.0 https://maven.apache.org/maven-v4_0_0.xsd">
 	<modelVersion>4.0.0</modelVersion>
 
 	<groupId>org.springframework.boot.ide</groupId>
 	<artifactId>org.springframework.boot.ide</artifactId>
-	<version>4.0.2-SNAPSHOT</version>
+	<version>4.8.0-SNAPSHOT</version>
 	<packaging>pom</packaging>
 
 	<organization>
 		<name>Pivotal Software, Inc.</name>
 		<url>https://spring.io</url>
 	</organization>
-	<url>https://spring.io/tools/sts</url>
+	<url>https://spring.io/tools</url>
 	<inceptionYear>2007</inceptionYear>
-
-	<prerequisites>
-		<maven>3.0</maven>
-	</prerequisites>
 
 	<licenses>
 		<license>
-			<name>Eclipse Public License</name>
-			<url>http://www.eclipse.org/legal/epl-v10.html</url>
+			<name>Eclipse Public License v1.0</name>
+			<url>https://www.eclipse.org/legal/epl-v10.html</url>
 		</license>
 	</licenses>
+
+	<scm>
+		<connection>https://github.com/spring-projects/sts4.git</connection>
+		<tag>HEAD</tag>
+		<url>https://github.com/spring-projects/sts4/</url>
+	</scm>
+
+	<issueManagement>
+		<url>https://github.com/spring-projects/sts4/issues</url>
+		<system>GitHub</system>
+	</issueManagement>
+
+	<ciManagement>
+		<url>https://build.spring.io/browse/IDE</url>
+		<system>BAMBOO</system>
+	</ciManagement>
 
 	<modules>
 		<module>../eclipse-extensions/org.springframework.boot.ide.main.feature</module>
@@ -43,8 +55,10 @@
 		<signing.alias>pivotal</signing.alias>
 		<signing.keystore>~/.keytool/pivotal.jks</signing.keystore>
 
-		<!-- OSX app signing -->
+		<!-- signing and notarizing (win exe signing + macOS app signing and notarizing-->
+		<skip.win.signing>true</skip.win.signing>
 		<skip.osx.signing>true</skip.osx.signing>
+		<skip.osx.notarizing>true</skip.osx.notarizing>
 
 		<dist.name>Spring Tool Suite 4</dist.name>
 
@@ -55,13 +69,16 @@
 		<dist.pathpostfix>nightly</dist.pathpostfix>
 		<dist.path>${dist.type}/${dist.key}/${dist.project}/${dist.pathpostfix}</dist.path>
 		
-		<eclipsecommons-p2-repo>http://dist.springsource.com/snapshot/TOOLS/eclipse-integration-commons/nightly</eclipsecommons-p2-repo>
-		<springide-p2-repo>http://dist.springframework.org/snapshot/IDE/nightly</springide-p2-repo>
-<!--		<eclipsecommons-p2-repo>http://dist.springsource.com/release/TOOLS/eclipse-integration-commons/3.9.6.RELEASE/</eclipsecommons-p2-repo>
-		<springide-p2-repo>http://dist.springframework.org/release/IDE/3.9.6.RELEASE</springide-p2-repo> -->
-		<sts4-language-servers-p2-repo>http://dist.springsource.com/${dist.type}/TOOLS/sts4-language-server-integrations/${sts4-language-servers-version}</sts4-language-servers-p2-repo>
+	    <eclipsecommons-p2-repo>https://dist.springsource.com/snapshot/TOOLS/eclipse-integration-commons/nightly</eclipsecommons-p2-repo>
+		<springide-p2-repo>https://dist.springframework.org/snapshot/IDE/nightly</springide-p2-repo>
+<!--		<eclipsecommons-p2-repo>https://dist.springsource.com/milestone/TOOLS/eclipse-integration-commons/3.9.7.RC1/</eclipsecommons-p2-repo>
+		<springide-p2-repo>https://dist.springframework.org/milestone/IDE/3.9.7.RC1</springide-p2-repo> -->
+<!--		<eclipsecommons-p2-repo>https://dist.springsource.com/release/TOOLS/eclipse-integration-commons/3.9.13.RELEASE/</eclipsecommons-p2-repo>
+		<springide-p2-repo>https://dist.springframework.org/release/IDE/3.9.13.RELEASE</springide-p2-repo> -->
 
-		<tycho-version>1.2.0</tycho-version>
+		<sts4-language-servers-p2-repo>https://dist.springsource.com/${dist.type}/TOOLS/sts4-language-server-integrations/${sts4-language-servers-version}</sts4-language-servers-p2-repo>
+
+		<tycho-version>1.7.0</tycho-version>
 		<encoding>UTF-8</encoding>
 	</properties>
 
@@ -104,170 +121,291 @@
 		</profile>
 
 		<profile>
-			<id>e49</id>
+			<id>e415</id>
 			<properties>
-				<dist.target>e4.9.0</dist.target>
-				<dist.target.major>e4.9</dist.target.major>
-				<dist.platform.name>2018-09</dist.platform.name>
-				<dist.platform.name.long>2018-09 (4.9.0)</dist.platform.name.long>
-				<dist.platform.id>2018-09</dist.platform.id>
-				<dist.platform.version>4.9</dist.platform.version>
-				<package.qualifierPrefix>e49</package.qualifierPrefix>
+				<dist.target>e4.15.0</dist.target>
+				<dist.target.major>e4.15</dist.target.major>
+				<dist.platform.name>2020-03</dist.platform.name>
+				<dist.platform.name.long>2020-03 (4.15.0)</dist.platform.name.long>
+				<dist.platform.id>2020-03</dist.platform.id>
+				<dist.platform.version>4.15</dist.platform.version>
+				<package.qualifierPrefix>e415</package.qualifierPrefix>
 			</properties>
 			<repositories>
 				<repository>
-					<id>photon</id>
+					<id>2020-03</id>
 					<layout>p2</layout>
-					<url>http://download.eclipse.org/releases/2018-09/</url>
+					<url>https://download.eclipse.org/releases/2020-03/</url>
 				</repository>
-<!--				<repository>
-					<id>staging</id>
+				<repository>
+					<id>2020-03-updates</id>
 					<layout>p2</layout>
-					<url>http://download.eclipse.org/staging/2018-09/</url>
-				</repository> -->
+					<url>https://download.eclipse.org/eclipse/updates/4.15/</url>
+				</repository>
 				<repository>
 					<id>orbit</id>
 					<layout>p2</layout>
-					<url>http://download.eclipse.org/tools/orbit/downloads/drops/R20180905201904/repository</url>
+					<url>https://download.eclipse.org/tools/orbit/downloads/drops/R20200224183213/repository</url>
 				</repository>
 				<repository>
-					<id>latest-m2e</id>
+					<id>latest-m2e-wtp</id>
 					<layout>p2</layout>
-					<url>http://download.eclipse.org/technology/m2e/releases/1.8</url>
+					<url>https://download.eclipse.org/m2e-wtp/releases/1.4/</url>
 				</repository>
 				<repository>
 					<id>maven-extras-mirror</id>
 					<layout>p2</layout>
-					<url>http://download.springsource.com/release/TOOLS/third-party/m2e-sts310-signed/</url>
+					<url>https://download.springsource.com/release/TOOLS/third-party/m2e-sts310-signed/</url>
 				</repository>
 				<repository>
 					<id>maven-egit</id>
 					<layout>p2</layout>
-					<url>http://repo1.maven.org/maven2/.m2e/connectors/m2eclipse-egit/0.15.1/N/LATEST</url>
+					<url>https://repo1.maven.org/maven2/.m2e/connectors/m2eclipse-egit/0.15.1/N/LATEST</url>
 				</repository>
+				<!--				<repository>
+									<id>maven-wro4j</id>
+									<layout>p2</layout>
+									<url>https://download.jboss.org/jbosstools/updates/m2e-wro4j/</url>
+								</repository> -->
 				<repository>
 					<id>maven-wro4j</id>
 					<layout>p2</layout>
-					<url>http://download.jboss.org/jbosstools/updates/m2e-wro4j/</url>
+					<url>https://download.jboss.org/jbosstools/updates/m2e-extensions/m2e-wro4j/1.1.0-2014-06-25_06-16-31-H26/</url>
+				</repository>
+				<repository>
+					<id>m2e-chromatic</id>
+					<layout>p2</layout>
+					<url>https://dl.bintray.com/sidespin/repo/m2e-chromatic/1.0.1/</url>
 				</repository>
 				<repository>
 					<id>maven-devtools</id>
 					<layout>p2</layout>
-					<url>http://dist.springsource.com/release/TOOLS/mavendevtools/</url>
+					<url>https://dist.springsource.com/release/TOOLS/mavendevtools/</url>
 				</repository>
 				<repository>
 					<id>maven-dependency-support</id>
 					<layout>p2</layout>
-					<url>http://ianbrandt.github.io/m2e-maven-dependency-plugin/</url>
+					<url>https://ianbrandt.github.io/m2e-maven-dependency-plugin/</url>
 				</repository>
 				<repository>
 					<id>ansi-console</id>
 					<layout>p2</layout>
-					<url>http://www.mihai-nita.net/eclipse</url>
+					<url>https://www.mihai-nita.net/eclipse</url>
 				</repository>
-				<repository>
+<!--				<repository>
 					<id>xtext-base</id>
 					<layout>p2</layout>
-					<url>http://download.eclipse.org/modeling/tmf/xtext/updates/milestones/</url>
+					<url>https://download.eclipse.org/modeling/tmf/xtext/updates/milestones/</url>
+				</repository> -->
+				<repository>
+					<id>mylyn-markdown</id>
+					<layout>p2</layout>
+					<url>https://download.eclipse.org/mylyn/docs/releases/3.0/</url>
 				</repository>
-<!--				<repository>
+				<repository>
 					<id>lsp4e</id>
 					<layout>p2</layout>
-					<url>http://download.eclipse.org/lsp4e/snapshots/</url>
-				</repository> -->
-<!--				<repository>
-					<id>lsp4j</id>
-					<layout>p2</layout>
-					<url>http://services.typefox.io/open-source/jenkins/job/lsp4j/job/master/lastSuccessfulBuild/artifact/build/p2-repository/</url>
-				</repository> -->
+					<url>https://download.eclipse.org/lsp4e/releases/0.16.0/</url>
+				</repository>
 			</repositories>
 			<modules>
-				<module>org.springframework.boot.ide.product.e49</module>
-				<module>org.springframework.boot.ide.repository.e49</module>
+				<module>org.springframework.boot.ide.product.e415</module>
 			</modules>
 		</profile>
 
 		<profile>
-			<id>e410</id>
+			<id>e416</id>
 			<properties>
-				<dist.target>e4.10.0</dist.target>
-				<dist.target.major>e4.10</dist.target.major>
-				<dist.platform.name>2018-12</dist.platform.name>
-				<dist.platform.name.long>2018-12 (4.10.0)</dist.platform.name.long>
-				<dist.platform.id>2018-12</dist.platform.id>
-				<dist.platform.version>4.10</dist.platform.version>
-				<package.qualifierPrefix>e410</package.qualifierPrefix>
+				<dist.target>e4.16.0</dist.target>
+				<dist.target.major>e4.16</dist.target.major>
+				<dist.platform.name>2020-06</dist.platform.name>
+				<dist.platform.name.long>2020-06 (4.16)</dist.platform.name.long>
+				<dist.platform.id>2020-06</dist.platform.id>
+				<dist.platform.version>4.16</dist.platform.version>
+				<package.qualifierPrefix>e416</package.qualifierPrefix>
 			</properties>
 			<repositories>
 				<repository>
-					<id>photon</id>
+					<id>2020-06</id>
 					<layout>p2</layout>
-					<url>http://download.eclipse.org/releases/2018-12/</url>
+					<url>https://download.eclipse.org/releases/2020-06/</url>
 				</repository>
-<!--				<repository>
-					<id>staging</id>
-					<layout>p2</layout>
-					<url>http://download.eclipse.org/staging/2018-12/</url>
-				</repository> -->
 				<repository>
 					<id>orbit</id>
 					<layout>p2</layout>
-					<url>http://download.eclipse.org/tools/orbit/downloads/drops/S20181031145145/repository</url>
+					<url>https://download.eclipse.org/tools/orbit/downloads/drops/R20200529191137/repository</url>
 				</repository>
 				<repository>
-					<id>latest-m2e</id>
+					<id>m2e</id>
 					<layout>p2</layout>
-					<url>http://download.eclipse.org/technology/m2e/releases/1.8</url>
+					<url>https://download.eclipse.org/technology/m2e/snapshots/1.16.2/latest/</url>
+				</repository>
+				<repository>
+					<id>latest-m2e-wtp</id>
+					<layout>p2</layout>
+					<url>https://download.eclipse.org/m2e-wtp/releases/1.4/</url>
 				</repository>
 				<repository>
 					<id>maven-extras-mirror</id>
 					<layout>p2</layout>
-					<url>http://download.springsource.com/release/TOOLS/third-party/m2e-sts310-signed/</url>
+					<url>https://download.springsource.com/release/TOOLS/third-party/m2e-sts310-signed/</url>
 				</repository>
 				<repository>
 					<id>maven-egit</id>
 					<layout>p2</layout>
-					<url>http://repo1.maven.org/maven2/.m2e/connectors/m2eclipse-egit/0.15.1/N/LATEST</url>
+					<url>https://repo1.maven.org/maven2/.m2e/connectors/m2eclipse-egit/0.15.1/N/LATEST</url>
 				</repository>
+				<!--				<repository>
+									<id>maven-wro4j</id>
+									<layout>p2</layout>
+									<url>https://download.jboss.org/jbosstools/updates/m2e-wro4j/</url>
+								</repository> -->
 				<repository>
 					<id>maven-wro4j</id>
 					<layout>p2</layout>
-					<url>http://download.jboss.org/jbosstools/updates/m2e-wro4j/</url>
+					<url>https://download.jboss.org/jbosstools/updates/m2e-extensions/m2e-wro4j/1.1.0-2014-06-25_06-16-31-H26/</url>
+				</repository>
+				<repository>
+					<id>m2e-chromatic</id>
+					<layout>p2</layout>
+					<url>https://dl.bintray.com/sidespin/repo/m2e-chromatic/1.0.1/</url>
 				</repository>
 				<repository>
 					<id>maven-devtools</id>
 					<layout>p2</layout>
-					<url>http://dist.springsource.com/release/TOOLS/mavendevtools/</url>
+					<url>https://dist.springsource.com/release/TOOLS/mavendevtools/</url>
 				</repository>
 				<repository>
 					<id>maven-dependency-support</id>
 					<layout>p2</layout>
-					<url>http://ianbrandt.github.io/m2e-maven-dependency-plugin/</url>
+					<url>https://ianbrandt.github.io/m2e-maven-dependency-plugin/</url>
 				</repository>
 				<repository>
 					<id>ansi-console</id>
 					<layout>p2</layout>
-					<url>http://www.mihai-nita.net/eclipse</url>
+					<url>https://www.mihai-nita.net/eclipse</url>
 				</repository>
-				<repository>
+<!--				<repository>
 					<id>xtext-base</id>
 					<layout>p2</layout>
-					<url>http://download.eclipse.org/modeling/tmf/xtext/updates/milestones/</url>
+					<url>https://download.eclipse.org/modeling/tmf/xtext/updates/milestones/</url>
+				</repository> -->
+				<repository>
+					<id>mylyn-markdown</id>
+					<layout>p2</layout>
+					<url>https://download.eclipse.org/mylyn/docs/releases/3.0/</url>
 				</repository>
 				<repository>
 					<id>lsp4e</id>
 					<layout>p2</layout>
-					<url>http://download.eclipse.org/lsp4e/snapshots/</url>
+					<url>https://download.eclipse.org/lsp4e/releases/0.16.0/</url>
 				</repository>
-<!--				<repository>
-					<id>lsp4j</id>
-					<layout>p2</layout>
-					<url>http://services.typefox.io/open-source/jenkins/job/lsp4j/job/master/lastSuccessfulBuild/artifact/build/p2-repository/</url>
-				</repository> -->
 			</repositories>
 			<modules>
-				<module>org.springframework.boot.ide.product.e410</module>
-				<module>org.springframework.boot.ide.repository.e410</module>
+				<module>org.springframework.boot.ide.product.e416</module>
+			</modules>
+		</profile>
+
+		<profile>
+			<id>e417</id>
+			<properties>
+				<dist.target>e4.17.0</dist.target>
+				<dist.target.major>e4.17</dist.target.major>
+				<dist.platform.name>2020-09</dist.platform.name>
+				<dist.platform.name.long>2020-09 (4.17)</dist.platform.name.long>
+				<dist.platform.id>2020-09</dist.platform.id>
+				<dist.platform.version>4.17</dist.platform.version>
+				<package.qualifierPrefix>e417</package.qualifierPrefix>
+			</properties>
+			<repositories>
+				<repository>
+					<id>2020-09</id>
+					<layout>p2</layout>
+					<url>https://download.eclipse.org/releases/2020-09/</url>
+				</repository>
+				<repository>
+					<id>2020-09-staging</id>
+					<layout>p2</layout>
+					<url>https://download.eclipse.org/staging/2020-09/</url>
+				</repository>
+				<repository>
+					<id>orbit</id>
+					<layout>p2</layout>
+					<url>https://download.eclipse.org/tools/orbit/downloads/drops/R20200831200620/repository</url>
+				</repository>
+				<repository>
+					<id>m2e</id>
+					<layout>p2</layout>
+					<url>https://download.eclipse.org/technology/m2e/snapshots/1.16.2/latest/</url>
+				</repository>
+<!--				<repository>
+					<id>latest-m2e-wtp</id>
+					<layout>p2</layout>
+					<url>https://download.eclipse.org/m2e-wtp/releases/1.4/</url>
+				</repository> -->
+				<repository>
+					<id>latest-m2e-wtp</id>
+					<layout>p2</layout>
+					<url>https://download.eclipse.org/m2e-wtp/milestones/1.4/1.4.4.20200220-1005/</url>
+				</repository>
+				<repository>
+					<id>maven-extras-mirror</id>
+					<layout>p2</layout>
+					<url>https://download.springsource.com/release/TOOLS/third-party/m2e-sts310-signed/</url>
+				</repository>
+				<repository>
+					<id>maven-egit</id>
+					<layout>p2</layout>
+					<url>https://repo1.maven.org/maven2/.m2e/connectors/m2eclipse-egit/0.15.1/N/LATEST</url>
+				</repository>
+				<!--				<repository>
+									<id>maven-wro4j</id>
+									<layout>p2</layout>
+									<url>https://download.jboss.org/jbosstools/updates/m2e-wro4j/</url>
+								</repository> -->
+				<repository>
+					<id>maven-wro4j</id>
+					<layout>p2</layout>
+					<url>https://download.jboss.org/jbosstools/updates/m2e-extensions/m2e-wro4j/1.1.0-2014-06-25_06-16-31-H26/</url>
+				</repository>
+				<repository>
+					<id>m2e-chromatic</id>
+					<layout>p2</layout>
+					<url>https://dl.bintray.com/sidespin/repo/m2e-chromatic/1.0.1/</url>
+				</repository>
+				<repository>
+					<id>maven-devtools</id>
+					<layout>p2</layout>
+					<url>https://dist.springsource.com/release/TOOLS/mavendevtools/</url>
+				</repository>
+				<repository>
+					<id>maven-dependency-support</id>
+					<layout>p2</layout>
+					<url>https://ianbrandt.github.io/m2e-maven-dependency-plugin/</url>
+				</repository>
+				<repository>
+					<id>ansi-console</id>
+					<layout>p2</layout>
+					<url>https://www.mihai-nita.net/eclipse</url>
+				</repository>
+<!--				<repository>
+					<id>xtext-base</id>
+					<layout>p2</layout>
+					<url>https://download.eclipse.org/modeling/tmf/xtext/updates/milestones/</url>
+				</repository> -->
+				<repository>
+					<id>mylyn-markdown</id>
+					<layout>p2</layout>
+					<url>https://download.eclipse.org/mylyn/docs/releases/3.0/</url>
+				</repository>
+				<repository>
+					<id>lsp4e</id>
+					<layout>p2</layout>
+					<url>https://download.eclipse.org/lsp4e/snapshots/</url>
+				</repository>
+			</repositories>
+			<modules>
+				<module>org.springframework.boot.ide.product.e417</module>
 			</modules>
 		</profile>
 
@@ -283,8 +421,8 @@
 					-Dhttps.proxyHost=proxy.eng.vmware.com -Dhttps.proxyPort=3128 ${test.osvmargs}</test.vmargs> -->
 				<p2.qualifier>CI-B${bamboo.buildNumber}</p2.qualifier>
 				<p2.replaceQualifier>true</p2.replaceQualifier>
-				<!-- <http_proxy>http://proxy.eng.vmware.com:3128</http_proxy> -->
-				<!-- <https_proxy>http://proxy.eng.vmware.com:3128</https_proxy> -->
+				<!-- <http_proxy>https://proxy.eng.vmware.com:3128</http_proxy> -->
+				<!-- <https_proxy>https://proxy.eng.vmware.com:3128</https_proxy> -->
 			</properties>
 		</profile>
 
@@ -314,15 +452,30 @@
 			<layout>p2</layout>
 			<url>${eclipsecommons-p2-repo}</url>
 		</repository>
+<!--		<repository>
+			<id>egit-github</id>
+			<layout>p2</layout>
+			<url>https://download.eclipse.org/egit/github/updates</url>
+		</repository> -->
 		<repository>
 			<id>egit-github</id>
 			<layout>p2</layout>
-			<url>http://download.eclipse.org/egit/github/updates</url>
+			<url>https://download.eclipse.org/egit/github/updates-stable-nightly/</url>
 		</repository>
+<!--		<repository>
+			<id>m2e-apt</id>
+			<layout>p2</layout>
+			<url>https://download.jboss.org/jbosstools/updates/m2e-extensions/m2e-apt</url>
+		</repository> -->
 		<repository>
 			<id>m2e-apt</id>
 			<layout>p2</layout>
-			<url>http://download.jboss.org/jbosstools/updates/m2e-extensions/m2e-apt</url>
+			<url>https://download.jboss.org/jbosstools/updates/m2e-extensions/m2e-apt/1.5.2-2018-12-24_15-46-05-H18/</url>
+		</repository>
+		<repository>
+			<id>justj</id>
+			<url>https://download.eclipse.org/justj/jres/14/updates/release/latest/</url>
+			<layout>p2</layout>
 		</repository>
 	</repositories>
 
@@ -335,12 +488,12 @@
 		<pluginRepository>
 			<id>spring-maven-release</id>
 			<name>Spring Maven Release Repository</name>
-			<url>http://maven.springframework.org/release</url>
+			<url>https://maven.springframework.org/release</url>
 		</pluginRepository>
 		<pluginRepository>
 			<id>springsource-maven-release</id>
 			<name>SpringSource Maven Release Repository</name>
-			<url>http://repository.springsource.com/maven/bundles/release</url>
+			<url>https://repository.springsource.com/maven/bundles/release</url>
 		</pluginRepository>
 		<pluginRepository>
 			<id>sonatype.snapshots</id>
@@ -362,7 +515,7 @@
 	        <plugin>
 	          <groupId>org.eclipse.tycho.extras</groupId>
 	          <artifactId>tycho-source-feature-plugin</artifactId>
-	          <version>1.0.0</version>
+			  <version>${tycho-version}</version>
 	        </plugin>
 
 			<plugin>
@@ -394,7 +547,7 @@
 				<executions>
 					<execution>
 						<id>attached-p2-metadata</id>
-						<phase>package</phase>
+						<phase>verify</phase>
 						<goals>
 							<goal>p2-metadata</goal>
 						</goals>
@@ -430,7 +583,7 @@
 			<plugin>
 				<groupId>org.apache.maven.plugins</groupId>
 				<artifactId>maven-jarsigner-plugin</artifactId>
-				<version>1.4</version>
+				<version>3.0.0</version>
 				<executions>
 					<execution>
 						<id>sign</id>
@@ -446,6 +599,7 @@
 					<storepass>${signing.store.password}</storepass>
 					<keypass>${signing.key.password}</keypass>
 					<tsa>http://sha256timestamp.ws.symantec.com/sha256/timestamp</tsa>
+<!--					<tsa>http://timestamp.digicert.com</tsa> -->
 				</configuration>
 			</plugin>
 		</plugins>

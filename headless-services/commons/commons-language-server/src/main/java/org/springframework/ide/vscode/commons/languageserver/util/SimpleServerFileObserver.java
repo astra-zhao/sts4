@@ -1,9 +1,9 @@
 /*******************************************************************************
- * Copyright (c) 2017 Pivotal, Inc.
+ * Copyright (c) 2017, 2020 Pivotal, Inc.
  * All rights reserved. This program and the accompanying materials
  * are made available under the terms of the Eclipse Public License v1.0
  * which accompanies this distribution, and is available at
- * http://www.eclipse.org/legal/epl-v10.html
+ * https://www.eclipse.org/legal/epl-v10.html
  *
  * Contributors:
  *     Pivotal, Inc. - initial API and implementation
@@ -22,7 +22,6 @@ import org.eclipse.lsp4j.Unregistration;
 import org.eclipse.lsp4j.UnregistrationParams;
 import org.springframework.ide.vscode.commons.languageserver.json.DidChangeWatchedFilesRegistrationOptions;
 import org.springframework.ide.vscode.commons.languageserver.json.FileSystemWatcher;
-import org.springframework.ide.vscode.commons.util.Assert;
 import org.springframework.ide.vscode.commons.util.BasicFileObserver;
 
 /**
@@ -42,28 +41,28 @@ public class SimpleServerFileObserver extends BasicFileObserver {
 	}
 
 	@Override
-	public String onFileCreated(List<String> globPattern, Consumer<String> handler) {
-		String subscriptionId = super.onFileCreated(globPattern, handler);
+	public String onFilesCreated(List<String> globPattern, Consumer<String[]> handler) {
+		String subscriptionId = super.onFilesCreated(globPattern, handler);
 		subscribe(subscriptionId, globPattern, FileSystemWatcher.CREATE);
 		return subscriptionId;
 	}
 
 	@Override
-	public String onFileChanged(List<String> globPattern, Consumer<String> handler) {
-		String subscriptionId = super.onFileChanged(globPattern, handler);
+	public String onFilesChanged(List<String> globPattern, Consumer<String[]> handler) {
+		String subscriptionId = super.onFilesChanged(globPattern, handler);
 		subscribe(subscriptionId, globPattern, FileSystemWatcher.CHANGE);
 		return subscriptionId;
 	}
 
 	@Override
-	public String onFileDeleted(List<String> globPattern, Consumer<String> handler) {
-		String subscriptionId = super.onFileDeleted(globPattern, handler);
+	public String onFilesDeleted(List<String> globPattern, Consumer<String[]> handler) {
+		String subscriptionId = super.onFilesDeleted(globPattern, handler);
 		subscribe(subscriptionId, globPattern, FileSystemWatcher.DELETE);
 		return subscriptionId;
 	}
 
 	private void subscribe(String subscriptionId, List<String> globPattern, int kind) {
-		server.onInitialized(() -> {
+		server.doOnInitialized(() -> {
 			if (server.canRegisterFileWatchersDynamically()) {
 				List<FileSystemWatcher> watchers = globPattern.stream().map(pattern -> new FileSystemWatcher(pattern, kind)).collect(Collectors.toList());
 				Registration registration = new Registration(subscriptionId, WORKSPACE_DID_CHANGE_WATCHED_FILES, new DidChangeWatchedFilesRegistrationOptions(watchers));
@@ -74,7 +73,7 @@ public class SimpleServerFileObserver extends BasicFileObserver {
 
 	@Override
 	public boolean unsubscribe(String subscriptionId) {
-		server.onInitialized(() -> {
+		server.doOnInitialized(() -> {
 			if (server.canRegisterFileWatchersDynamically()) {
 				server.getClient().unregisterCapability(new UnregistrationParams(Arrays.asList(new Unregistration(subscriptionId, WORKSPACE_DID_CHANGE_WATCHED_FILES))));
 			}

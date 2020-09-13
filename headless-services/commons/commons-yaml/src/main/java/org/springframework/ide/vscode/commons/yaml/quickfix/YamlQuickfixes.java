@@ -1,9 +1,9 @@
 /*******************************************************************************
- * Copyright (c) 2017 Pivotal, Inc.
+ * Copyright (c) 2017, 2020 Pivotal, Inc.
  * All rights reserved. This program and the accompanying materials
  * are made available under the terms of the Eclipse Public License v1.0
  * which accompanies this distribution, and is available at
- * http://www.eclipse.org/legal/epl-v10.html
+ * https://www.eclipse.org/legal/epl-v10.html
  *
  * Contributors:
  *     Pivotal, Inc. - initial API and implementation
@@ -17,10 +17,11 @@ import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.ide.vscode.commons.languageserver.completion.DocumentEdits.TextReplace;
 import org.springframework.ide.vscode.commons.languageserver.quickfix.QuickfixEdit;
-import org.springframework.ide.vscode.commons.languageserver.quickfix.QuickfixEdit.CursorMovement;
 import org.springframework.ide.vscode.commons.languageserver.quickfix.QuickfixRegistry;
 import org.springframework.ide.vscode.commons.languageserver.quickfix.QuickfixType;
 import org.springframework.ide.vscode.commons.languageserver.util.SimpleTextDocumentService;
+import org.springframework.ide.vscode.commons.protocol.CursorMovement;
+import org.springframework.ide.vscode.commons.util.BadLocationException;
 import org.springframework.ide.vscode.commons.util.text.IRegion;
 import org.springframework.ide.vscode.commons.util.text.TextDocument;
 import org.springframework.ide.vscode.commons.yaml.completion.YamlPathEdits;
@@ -43,7 +44,7 @@ public class YamlQuickfixes {
 	private static final Logger LOG = LoggerFactory.getLogger(YamlQuickfixes.class);
 
 	private static final QuickfixEdit NULL_FIX = new QuickfixEdit(
-			new WorkspaceEdit(ImmutableMap.of(), null),
+			new WorkspaceEdit(ImmutableMap.of()),
 			null
 	);
 	public final QuickfixType MISSING_PROP_FIX;
@@ -56,7 +57,7 @@ public class YamlQuickfixes {
 			MissingPropertiesData params = gson.fromJson((JsonElement)_params, MissingPropertiesData.class);
 			try {
 				TextDocument _doc = textDocumentService.getDocument(params.getUri());
-				if (_doc!=null) {
+				if (_doc != null) {
 					YamlDocument doc = new YamlDocument(_doc, structureProvider);
 					SNode root = doc.getStructure();
 					if (root!=null) {
@@ -80,16 +81,7 @@ public class YamlQuickfixes {
 								}
 								edits.insert(insertAt, indenter.applyIndentation(propSnippet.substring(cursorOffset), indentBy));
 							}
-							TextReplace replaceEdit = edits.asReplacement(_doc);
-							if (replaceEdit!=null) {
-								WorkspaceEdit wsEdits = new WorkspaceEdit();
-								wsEdits.setChanges(ImmutableMap.of(
-										params.getUri(),
-										ImmutableList.of(new TextEdit(_doc.toRange(replaceEdit.getRegion()), replaceEdit.newText))
-								));
-								Position newCursor = getCursorPostionAfter(_doc, edits);
-								return new QuickfixEdit(wsEdits, newCursor==null ? null : new CursorMovement(params.getUri(), newCursor));
-							}
+							return createReplacementQuickfic(_doc, edits);
 						}
 					}
 				}
@@ -104,11 +96,10 @@ public class YamlQuickfixes {
 			try {
 				ReplaceStringData params = gson.fromJson((JsonElement)_params, ReplaceStringData.class);
 				TextDocument _doc = textDocumentService.getDocument(params.getUri());
-				if (_doc!=null) {
+				if (_doc != null) {
 					return new QuickfixEdit(
 						new WorkspaceEdit(
-							ImmutableMap.of(params.getUri(), ImmutableList.of(params.getEdit())),
-							null
+							ImmutableMap.of(params.getUri(), ImmutableList.of(params.getEdit()))
 						),
 						null //TODO: compute end of the range after applying the edit
 					);
@@ -121,7 +112,21 @@ public class YamlQuickfixes {
 		});
 	}
 
-	private Position getCursorPostionAfter(TextDocument _doc, YamlPathEdits edits) {
+	public static QuickfixEdit createReplacementQuickfic(TextDocument doc, YamlPathEdits edits) throws BadLocationException {
+		TextReplace replaceEdit = edits.asReplacement(doc);
+		if (replaceEdit!=null) {
+			WorkspaceEdit wsEdits = new WorkspaceEdit();
+			wsEdits.setChanges(ImmutableMap.of(
+					doc.getUri(),
+					ImmutableList.of(new TextEdit(doc.toRange(replaceEdit.getRegion()), replaceEdit.newText))
+			));
+			Position newCursor = getCursorPostionAfter(doc, edits);
+			return new QuickfixEdit(wsEdits, newCursor==null ? null : new CursorMovement(doc.getUri(), newCursor));
+		}
+		return NULL_FIX;
+	}
+
+	private static Position getCursorPostionAfter(TextDocument _doc, YamlPathEdits edits) {
 		try {
 			IRegion newSelection = edits.getSelection();
 			if (newSelection!=null) {

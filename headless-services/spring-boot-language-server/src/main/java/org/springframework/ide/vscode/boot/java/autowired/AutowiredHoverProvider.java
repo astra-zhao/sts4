@@ -1,9 +1,9 @@
 /*******************************************************************************
- * Copyright (c) 2017, 2018 Pivotal, Inc.
+ * Copyright (c) 2017, 2020 Pivotal, Inc.
  * All rights reserved. This program and the accompanying materials
  * are made available under the terms of the Eclipse Public License v1.0
  * which accompanies this distribution, and is available at
- * http://www.eclipse.org/legal/epl-v10.html
+ * https://www.eclipse.org/legal/epl-v10.html
  *
  * Contributors:
  *     Pivotal, Inc. - initial API and implementation
@@ -33,13 +33,14 @@ import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.ide.vscode.boot.java.Annotations;
 import org.springframework.ide.vscode.boot.java.annotations.AnnotationHierarchies;
+import org.springframework.ide.vscode.boot.java.beans.BeanUtils;
 import org.springframework.ide.vscode.boot.java.handlers.HoverProvider;
 import org.springframework.ide.vscode.boot.java.links.SourceLinks;
 import org.springframework.ide.vscode.boot.java.livehover.ComponentInjectionsHoverProvider;
 import org.springframework.ide.vscode.boot.java.livehover.LiveHoverUtils;
+import org.springframework.ide.vscode.boot.java.livehover.v2.LiveBean;
+import org.springframework.ide.vscode.boot.java.livehover.v2.SpringProcessLiveData;
 import org.springframework.ide.vscode.boot.java.utils.ASTUtils;
-import org.springframework.ide.vscode.commons.boot.app.cli.SpringBootApp;
-import org.springframework.ide.vscode.commons.boot.app.cli.livebean.LiveBean;
 import org.springframework.ide.vscode.commons.java.IJavaProject;
 import org.springframework.ide.vscode.commons.java.IType;
 import org.springframework.ide.vscode.commons.util.BadLocationException;
@@ -71,42 +72,40 @@ public class AutowiredHoverProvider implements HoverProvider {
 	}
 
 	@Override
-	public Collection<CodeLens> getLiveHintCodeLenses(IJavaProject project, Annotation annotation, TextDocument doc, SpringBootApp[] runningApps) {
-		if (runningApps.length > 0) {
+	public Collection<CodeLens> getLiveHintCodeLenses(IJavaProject project, Annotation annotation, TextDocument doc,
+			SpringProcessLiveData[] processLiveData) {
+		ImmutableList.Builder<CodeLens> builder = ImmutableList.builder();
+		if (processLiveData.length > 0) {
 			LiveBean definedBean = getDefinedBeanForTypeDeclaration(ASTUtils.findDeclaringType(annotation));
-			// Annotation is MarkerNode, parent is some field, method, variable declaration node.
+			// Annotation is MarkerNode, parent is some field, method, variable declaration
+			// node.
 			ASTNode declarationNode = annotation.getParent();
 			try {
 				Range hoverRange = doc.toRange(annotation.getStartPosition(), annotation.getLength());
-				return getLiveHoverHints(project, declarationNode, hoverRange, runningApps, definedBean);
+				for (SpringProcessLiveData liveData : processLiveData) {
+					List<LiveBean> relevantBeans = getRelevantAutowiredBeans(project, declarationNode, liveData,
+							definedBean);
+					if (!relevantBeans.isEmpty()) {
+						builder.addAll(LiveHoverUtils.createCodeLensesForBeans(hoverRange, relevantBeans,
+								BEANS_PREFIX_PLAIN_TEXT, MAX_INLINE_BEANS_STRING_LENGTH,
+								INLINE_BEANS_STRING_SEPARATOR));
+					}
+				}
 			} catch (BadLocationException e) {
 				log.error("", e);
 			}
 		}
-		return null;
-	}
-
-	private Collection<CodeLens> getLiveHoverHints(IJavaProject project, ASTNode declarationNode, Range range,
-			SpringBootApp[] runningApps, LiveBean definedBean) {
-		if (declarationNode != null && definedBean != null) {
-			for (SpringBootApp app : runningApps) {
-				List<LiveBean> relevantBeans = getRelevantAutowiredBeans(project, declarationNode, app, definedBean);
-				if (!relevantBeans.isEmpty()) {
-					return LiveHoverUtils.createCodeLensesForBeans(range, relevantBeans, BEANS_PREFIX_PLAIN_TEXT, MAX_INLINE_BEANS_STRING_LENGTH, INLINE_BEANS_STRING_SEPARATOR);
-				}
-			}
-		}
-		return null;
+		return builder.build();
 	}
 
 	@Override
 	public Hover provideHover(ASTNode node, Annotation annotation, ITypeBinding type, int offset,
-			TextDocument doc, IJavaProject project, SpringBootApp[] runningApps) {
-		if (runningApps.length > 0) {
+			TextDocument doc, IJavaProject project, SpringProcessLiveData[] processLiveData) {
+		if (processLiveData.length > 0) {
 			LiveBean definedBean = getDefinedBeanForTypeDeclaration(ASTUtils.findDeclaringType(annotation));
 			// Annotation is MarkerNode, parent is some field, method, variable declaration node.
 			ASTNode declarationNode = annotation.getParent();
-			Hover hover = provideHover(definedBean, declarationNode, offset, doc, project, runningApps);
+			Hover hover = provideHover(definedBean, declarationNode, offset, doc, project, processLiveData);
 			if (hover != null) {
 				try {
 					hover.setRange(doc.toRange(annotation.getStartPosition(), annotation.getLength()));
@@ -120,32 +119,28 @@ public class AutowiredHoverProvider implements HoverProvider {
 	}
 
 	private Hover provideHover(LiveBean definedBean, ASTNode declarationNode, int offset, TextDocument doc,
-			IJavaProject project, SpringBootApp[] runningApps) {
+			IJavaProject project, SpringProcessLiveData[] processLiveData) {
 		if (definedBean != null) {
 
 			StringBuilder hover = new StringBuilder();
 
-			boolean hasContent = false;
+			for (SpringProcessLiveData liveData : processLiveData) {
 
-			for (SpringBootApp app : runningApps) {
-
-				List<LiveBean> autowiredBeans = getRelevantAutowiredBeans(project, declarationNode, app, definedBean);
+				List<LiveBean> autowiredBeans = getRelevantAutowiredBeans(project, declarationNode, liveData, definedBean);
 
 				if (!autowiredBeans.isEmpty()) {
-					if (!hasContent) {
-						hasContent = true;
-					} else {
+					if (hover.length() > 0) {
 						hover.append("  \n  \n");
 					}
 					createHoverContentForBeans(sourceLinks, project, hover, autowiredBeans);
 					hover.append("Bean id: `");
 					hover.append(definedBean.getId());
 					hover.append("`  \n");
-					hover.append(LiveHoverUtils.niceAppName(app));
+					hover.append(LiveHoverUtils.niceAppName(liveData));
 				}
 
 			}
-			if (hasContent) {
+			if (hover.length() > 0) {
 				return new Hover(ImmutableList.of(Either.forLeft(hover.toString())));
 			}
 		}
@@ -163,14 +158,14 @@ public class AutowiredHoverProvider implements HoverProvider {
 		hover.append("\n  \n");
 	}
 
-	public static List<LiveBean> getRelevantAutowiredBeans(IJavaProject project, ASTNode declarationNode, SpringBootApp app, LiveBean definedBean) {
-		List<LiveBean> relevantBeans = LiveHoverUtils.findRelevantBeans(app, definedBean);
-		return getRelevantAutowiredBeans(project, declarationNode, app, relevantBeans);
+	public static List<LiveBean> getRelevantAutowiredBeans(IJavaProject project, ASTNode declarationNode, SpringProcessLiveData liveData, LiveBean definedBean) {
+		List<LiveBean> relevantBeans = LiveHoverUtils.findRelevantBeans(liveData, definedBean);
+		return getRelevantAutowiredBeans(project, declarationNode, liveData, relevantBeans);
 	}
 
-	public static List<LiveBean> getRelevantAutowiredBeans(IJavaProject project, ASTNode declarationNode, SpringBootApp app, List<LiveBean> relevantBeans) {
+	public static List<LiveBean> getRelevantAutowiredBeans(IJavaProject project, ASTNode declarationNode, SpringProcessLiveData liveData, List<LiveBean> relevantBeans) {
 		if (!relevantBeans.isEmpty()) {
-			List<LiveBean> allDependencyBeans = LiveHoverUtils.findAllDependencyBeans(app, relevantBeans);
+			List<LiveBean> allDependencyBeans = LiveHoverUtils.findAllDependencyBeans(liveData, relevantBeans);
 
 			if (!allDependencyBeans.isEmpty()) {
 
@@ -189,7 +184,7 @@ public class AutowiredHoverProvider implements HoverProvider {
 	}
 
 	@SuppressWarnings("unchecked")
-	private static List<LiveBean> findAutowiredBeans(IJavaProject project, ASTNode declarationNode, Collection<LiveBean> beans) {
+	public static List<LiveBean> findAutowiredBeans(IJavaProject project, ASTNode declarationNode, Collection<LiveBean> beans) {
 		if (declarationNode instanceof MethodDeclaration) {
 			MethodDeclaration methodDeclaration = (MethodDeclaration)declarationNode;
 			return ((List<Object>)methodDeclaration.parameters()).stream()
@@ -247,9 +242,9 @@ public class AutowiredHoverProvider implements HoverProvider {
 			// Raw collections shouldn't match any beans
 			return type.getTypeArguments().length == 1 ? matchBeansByType(project, beans, type.getTypeArguments()[0].getQualifiedName(), false) : ImmutableList.of();
 		} else if (type.isArray() && type.getDimensions() == 1) {
-			return matchBeansByType(project, beans, type.getElementType().getQualifiedName(), false);
+			return matchBeansByType(project, beans, type.getElementType().getErasure().getBinaryName(), false);
 		} else {
-			return matchBeansByType(project, beans, type.getQualifiedName(), true);
+			return matchBeansByType(project, beans, type.getErasure().getBinaryName(), true);
 		}
 	}
 
@@ -269,18 +264,13 @@ public class AutowiredHoverProvider implements HoverProvider {
 	}
 
 	private static boolean isCompatibleBeanType(IJavaProject jp, LiveBean bean, String bindingQualifiedName) {
-		String liveBeanTypeFQName = bean.getType();
+		String rawLiveBeanFqName = bean.getType(true);
+		int idx = rawLiveBeanFqName.indexOf('<');
+		// Trim the generic parameters part if it's present
+		String liveBeanTypeFQName = idx < 0 ? rawLiveBeanFqName : rawLiveBeanFqName.substring(0, idx);
 		if (liveBeanTypeFQName != null) {
-			if (liveBeanTypeFQName.replace('$', '.').equals(bindingQualifiedName)) {
-				return true;
-			} else {
-				IType type = jp.findType(liveBeanTypeFQName);
-				String fqTypeName = bindingQualifiedName;
-				if (type != null) {
-					return jp.allSuperTypesOf(type).map(IType::getFullyQualifiedName)
-							.filter(fqn -> fqTypeName.equals(fqn.replace('$', '.'))).blockFirst() != null;
-				}
-			}
+			return jp.getIndex().allSuperTypesOf(liveBeanTypeFQName, true, false).map(IType::getFullyQualifiedName)
+					.filter(fqn -> bindingQualifiedName.equals(fqn)).blockFirst() != null;
 		}
 		return false;
 	}
@@ -301,7 +291,7 @@ public class AutowiredHoverProvider implements HoverProvider {
 				String beanTypeName = beanType.getName();
 				if (StringUtil.hasText(beanTypeName)) {
 					return LiveBean.builder()
-							.id(Character.toLowerCase(beanTypeName.charAt(0)) + beanTypeName.substring(1))
+							.id(getId(beanTypeName))
 							.type(beanTypeName).build();
 				}
 			}
@@ -309,10 +299,14 @@ public class AutowiredHoverProvider implements HoverProvider {
 		return null;
 	}
 
+	private String getId(String beanTypeName) {
+		return BeanUtils.getBeanNameFromType(beanTypeName);
+	}
+
 	@Override
-	public Hover provideHover(MethodDeclaration methodDeclaration, int offset, TextDocument doc, IJavaProject project, SpringBootApp[] runningApps) {
+	public Hover provideHover(MethodDeclaration methodDeclaration, int offset, TextDocument doc, IJavaProject project, SpringProcessLiveData[] processLiveData) {
 		LiveBean definedBean = getDefinedBeanForImplicitAutowiredConstructor(methodDeclaration);
-		Hover hover = provideHover(definedBean, methodDeclaration, offset, doc, project, runningApps);
+		Hover hover = provideHover(definedBean, methodDeclaration, offset, doc, project, processLiveData);
 		if (hover != null) {
 			SimpleName name = methodDeclaration.getName();
 			try {
@@ -325,16 +319,54 @@ public class AutowiredHoverProvider implements HoverProvider {
 	}
 
 	@Override
-	public Collection<CodeLens> getLiveHintCodeLenses(IJavaProject project, MethodDeclaration methodDeclaration, TextDocument doc,
-			SpringBootApp[] runningApps) {
-		LiveBean definedBean = getDefinedBeanForImplicitAutowiredConstructor(methodDeclaration);
-		try {
-			Range hoverRange = doc.toRange(methodDeclaration.getName().getStartPosition(), methodDeclaration.getName().getLength());
-			return getLiveHoverHints(project, methodDeclaration, hoverRange, runningApps, definedBean);
-		} catch (BadLocationException e) {
-			log.error("", e);
+	public Hover provideMethodParameterHover(SingleVariableDeclaration parameter, int offset, TextDocument doc,
+			IJavaProject project, SpringProcessLiveData[] processLiveData) {
+		MethodDeclaration method = (MethodDeclaration) parameter.getParent();
+		LiveBean definedBean = getDefinedBeanForImplicitAutowiredConstructor(method);
+		Hover hover = provideHover(definedBean, parameter, offset, doc, project, processLiveData);
+		if (hover != null) {
+			SimpleName name = parameter.getName();
+			try {
+				hover.setRange(doc.toRange(name.getStartPosition(), name.getLength()));
+			} catch (BadLocationException e) {
+				log.error("", e);
+			}
 		}
-		return null;
+		return hover;
+	}
+
+	@Override
+	public Collection<CodeLens> getLiveHintCodeLenses(IJavaProject project, MethodDeclaration methodDeclaration,
+			TextDocument doc, SpringProcessLiveData[] processLiveData) {
+		ImmutableList.Builder<CodeLens> builder = ImmutableList.builder();
+		LiveBean definedBean = getDefinedBeanForImplicitAutowiredConstructor(methodDeclaration);
+		if (definedBean != null) {
+			try {
+				Range hoverRange = doc.toRange(methodDeclaration.getName().getStartPosition(),
+						methodDeclaration.getName().getLength());
+
+				for (SpringProcessLiveData liveData : processLiveData) {
+					List<LiveBean> relevantBeans = getRelevantAutowiredBeans(project, methodDeclaration, liveData,
+							definedBean);
+					if (!relevantBeans.isEmpty()) {
+
+						// CodeLens for the method
+						builder.addAll(LiveHoverUtils.createCodeLensesForBeans(hoverRange, relevantBeans,
+								BEANS_PREFIX_PLAIN_TEXT, MAX_INLINE_BEANS_STRING_LENGTH,
+								INLINE_BEANS_STRING_SEPARATOR));
+
+						// CodeLenses for the method parameters. Only ranges just to provide a highlight
+						// for the hover
+						builder.addAll(LiveHoverUtils.createCodeLensForMethodParameters(liveData, project, methodDeclaration, doc, relevantBeans));
+
+					}
+				}
+			} catch (BadLocationException e) {
+				log.error("", e);
+			}
+
+		}
+		return builder.build();
 	}
 
 	private LiveBean getDefinedBeanForImplicitAutowiredConstructor(MethodDeclaration methodDeclaration) {

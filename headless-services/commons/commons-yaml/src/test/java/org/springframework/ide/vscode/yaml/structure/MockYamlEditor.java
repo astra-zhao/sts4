@@ -3,7 +3,7 @@
  * All rights reserved. This program and the accompanying materials
  * are made available under the terms of the Eclipse Public License v1.0
  * which accompanies this distribution, and is available at
- * http://www.eclipse.org/legal/epl-v10.html
+ * https://www.eclipse.org/legal/epl-v10.html
  *
  * Contributors:
  *     Pivotal, Inc. - initial API and implementation
@@ -32,15 +32,13 @@ import org.yaml.snakeyaml.nodes.Node;
  */
 class MockYamlEditor {
 
-	private Yaml yaml;
 	private YamlASTProvider parser;
 
 	private String text;
 
 	public MockYamlEditor(String string) throws Exception {
 		this.text = string;
-		this.yaml = new Yaml();
-		this.parser = new YamlParser(yaml);
+		this.parser = new YamlParser();
 	}
 
 	@Override

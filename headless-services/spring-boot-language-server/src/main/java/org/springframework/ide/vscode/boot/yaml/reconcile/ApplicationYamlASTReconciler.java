@@ -1,9 +1,9 @@
 /*******************************************************************************
- * Copyright (c) 2016-2017 Pivotal, Inc.
+ * Copyright (c) 2016, 2019 Pivotal, Inc.
  * All rights reserved. This program and the accompanying materials
  * are made available under the terms of the Eclipse Public License v1.0
  * which accompanies this distribution, and is available at
- * http://www.eclipse.org/legal/epl-v10.html
+ * https://www.eclipse.org/legal/epl-v10.html
  *
  * Contributors:
  *     Pivotal, Inc. - initial API and implementation
@@ -11,17 +11,24 @@
 
 package org.springframework.ide.vscode.boot.yaml.reconcile;
 
-import static org.springframework.ide.vscode.boot.yaml.reconcile.ApplicationYamlProblemType.YAML_DEPRECATED;
+import static org.springframework.ide.vscode.boot.yaml.reconcile.ApplicationYamlProblemType.YAML_DEPRECATED_ERROR;
+import static org.springframework.ide.vscode.boot.yaml.reconcile.ApplicationYamlProblemType.YAML_DEPRECATED_WARNING;
 import static org.springframework.ide.vscode.boot.yaml.reconcile.ApplicationYamlProblemType.YAML_DUPLICATE_KEY;
 import static org.springframework.ide.vscode.commons.yaml.ast.NodeUtil.asScalar;
 import static org.springframework.ide.vscode.commons.yaml.ast.YamlFileAST.getChildren;
 
+import java.util.ArrayList;
+import java.util.Collection;
 import java.util.HashSet;
 import java.util.List;
 import java.util.Map;
 import java.util.Set;
 import java.util.regex.Pattern;
 
+import org.eclipse.lsp4j.Position;
+import org.eclipse.lsp4j.Range;
+import org.eclipse.lsp4j.TextDocumentIdentifier;
+import org.springframework.ide.vscode.boot.configurationmetadata.Deprecation.Level;
 import org.springframework.ide.vscode.boot.metadata.IndexNavigator;
 import org.springframework.ide.vscode.boot.metadata.PropertyInfo;
 import org.springframework.ide.vscode.boot.metadata.types.Type;
@@ -30,6 +37,12 @@ import org.springframework.ide.vscode.boot.metadata.types.TypeUtil;
 import org.springframework.ide.vscode.boot.metadata.types.TypeUtil.BeanPropertyNameMode;
 import org.springframework.ide.vscode.boot.metadata.types.TypeUtil.EnumCaseMode;
 import org.springframework.ide.vscode.boot.metadata.types.TypedProperty;
+import org.springframework.ide.vscode.boot.properties.quickfix.CommonQuickfixes;
+import org.springframework.ide.vscode.boot.properties.quickfix.DeprecatedPropertyData;
+import org.springframework.ide.vscode.boot.properties.quickfix.MissingPropertyData;
+import org.springframework.ide.vscode.boot.yaml.quickfix.AppYamlQuickfixes;
+import org.springframework.ide.vscode.commons.languageserver.quickfix.Quickfix.QuickfixData;
+import org.springframework.ide.vscode.commons.languageserver.quickfix.QuickfixType;
 import org.springframework.ide.vscode.commons.languageserver.reconcile.IProblemCollector;
 import org.springframework.ide.vscode.commons.util.ExceptionUtil;
 import org.springframework.ide.vscode.commons.util.StringUtil;
@@ -37,11 +50,13 @@ import org.springframework.ide.vscode.commons.util.ValueParseException;
 import org.springframework.ide.vscode.commons.util.ValueParser;
 import org.springframework.ide.vscode.commons.util.text.DocumentRegion;
 import org.springframework.ide.vscode.commons.util.text.IDocument;
+import org.springframework.ide.vscode.commons.yaml.ast.NodeMergeSupport;
 import org.springframework.ide.vscode.commons.yaml.ast.NodeRef;
 import org.springframework.ide.vscode.commons.yaml.ast.NodeRef.Kind;
 import org.springframework.ide.vscode.commons.yaml.ast.NodeRef.TupleValueRef;
 import org.springframework.ide.vscode.commons.yaml.ast.NodeUtil;
 import org.springframework.ide.vscode.commons.yaml.ast.YamlFileAST;
+import org.springframework.ide.vscode.commons.yaml.path.YamlPath;
 import org.springframework.ide.vscode.commons.yaml.reconcile.YamlASTReconciler;
 import org.yaml.snakeyaml.nodes.MappingNode;
 import org.yaml.snakeyaml.nodes.Node;
@@ -49,6 +64,8 @@ import org.yaml.snakeyaml.nodes.NodeId;
 import org.yaml.snakeyaml.nodes.NodeTuple;
 import org.yaml.snakeyaml.nodes.ScalarNode;
 import org.yaml.snakeyaml.nodes.SequenceNode;
+
+import com.google.common.collect.ImmutableSet;
 
 /**
  * @author Kris De Volder
@@ -58,11 +75,15 @@ public class ApplicationYamlASTReconciler implements YamlASTReconciler {
 	private final IProblemCollector problems;
 	private final TypeUtil typeUtil;
 	private final IndexNavigator nav;
+	private final NodeMergeSupport nodeMerger;
+	private AppYamlQuickfixes quickFixes;
 
-	public ApplicationYamlASTReconciler(IProblemCollector problems, IndexNavigator nav, TypeUtil typeUtil) {
+	public ApplicationYamlASTReconciler(IProblemCollector problems, IndexNavigator nav, TypeUtil typeUtil, AppYamlQuickfixes quickFixes) {
 		this.problems = problems;
 		this.typeUtil = typeUtil;
 		this.nav = nav;
+		this.quickFixes = quickFixes;
+		this.nodeMerger = new NodeMergeSupport(problems);
 	}
 
 	@Override
@@ -82,8 +103,10 @@ public class ApplicationYamlASTReconciler implements YamlASTReconciler {
 	protected void reconcile(YamlFileAST root, Node node, IndexNavigator nav) {
 		switch (node.getNodeId()) {
 		case mapping:
-			checkForDuplicateKeys((MappingNode)node);
-			for (NodeTuple entry : ((MappingNode)node).getValue()) {
+			MappingNode map = (MappingNode) node;
+			nodeMerger.flattenMapping(map);
+			checkForDuplicateKeys(map);
+			for (NodeTuple entry : map.getValue()) {
 				reconcile(root, entry, nav);
 			}
 			break;
@@ -127,24 +150,25 @@ public class ApplicationYamlASTReconciler implements YamlASTReconciler {
 
 	private void reconcile(YamlFileAST root, NodeTuple entry, IndexNavigator nav) {
 		Node keyNode = entry.getKeyNode();
-		String key = asScalar(keyNode);
-		if (key==null) {
+		String _key = asScalar(keyNode);
+		if (_key==null) {
 			expectScalar(keyNode);
 		} else {
-			IndexNavigator subNav = nav.selectSubProperty(key);
-			PropertyInfo match = subNav.getExactMatch();
-			PropertyInfo extension = subNav.getExtensionCandidate();
-			if (match==null && extension==null) {
-				//nothing found for this key. Maybe user is using camelCase variation of the key?
-				String keyAlias = StringUtil.camelCaseToHyphens(key);
-				IndexNavigator subNavAlias = nav.selectSubProperty(keyAlias);
+			IndexNavigator subNav = null;
+			PropertyInfo match = null;
+			PropertyInfo extension = null;
+			//Try different 'relaxed' variants for this key. Maybe user is using camelCase or snake case?
+			for (String key : keyAliases(_key)) {
+				IndexNavigator subNavAlias = nav.selectSubProperty(key);
 				match = subNavAlias.getExactMatch();
 				extension = subNavAlias.getExtensionCandidate();
-				if (match!=null || extension!=null) {
-					//Got something for the alias, so use that instead.
-					//Note: do not swap for alias unless we actually found something.
-					// This gives more logical errors (in terms of user's key, not its canonical alias)
+				if (subNav==null) {
+					//ensure subnav is not null, even if no real matches found.
 					subNav = subNavAlias;
+				}
+				if (match!=null || extension!=null) {
+					subNav = subNavAlias;
+					break; //stop at first alias that gives a result.
 				}
 			}
 			if (match!=null && extension!=null) {
@@ -155,7 +179,7 @@ public class ApplicationYamlASTReconciler implements YamlASTReconciler {
 			} else if (match!=null) {
 				Type type = TypeParser.parse(match.getType());
 				if (match.isDeprecated()) {
-					deprecatedProperty(match, keyNode);
+					deprecatedProperty(root.getDocument().getUri(), match, keyNode, quickFixes.DEPRECATED_PROPERTY);
 				}
 				reconcile(root, entry.getValueNode(), type);
 			} else if (extension!=null) {
@@ -166,9 +190,19 @@ public class ApplicationYamlASTReconciler implements YamlASTReconciler {
 			} else {
 				//both are null, this means there's no valid property with the current prefix
 				//whether exact or extending it with further navigation
-				unkownProperty(keyNode, subNav.getPrefix(), entry);
+				if (!NodeUtil.isAnchored(entry)) { //See https://github.com/spring-projects/sts4/issues/420
+					unkownProperty(root.getDocument().getUri(), keyNode, subNav.getPrefix(), entry, quickFixes.MISSING_PROPERTY);
+				}
 			}
 		}
+	}
+
+	private Collection<String> keyAliases(String originalKey) {
+		ImmutableSet.Builder<String> builder = ImmutableSet.builder();
+		builder.add(originalKey);
+		builder.add(StringUtil.camelCaseToHyphens(originalKey));
+		builder.add(StringUtil.snakeCaseToHyphens(originalKey));
+		return builder.build();
 	}
 
 	/**
@@ -196,10 +230,11 @@ public class ApplicationYamlASTReconciler implements YamlASTReconciler {
 	}
 
 	private void reconcile(YamlFileAST root, MappingNode mapping, Type type) {
+		nodeMerger.flattenMapping(mapping);
 		checkForDuplicateKeys(mapping);
 		if (typeUtil.isAtomic(type)) {
 			expectTypeFoundMapping(type, mapping);
-		} else if (TypeUtil.isMap(type) || TypeUtil.isSequencable(type)) {
+		} else if (typeUtil.isMap(type) || typeUtil.isSequencable(type)) {
 			Type keyType = typeUtil.getKeyType(type);
 			Type valueType = TypeUtil.getDomainType(type);
 			if (keyType!=null) {
@@ -241,7 +276,7 @@ public class ApplicationYamlASTReconciler implements YamlASTReconciler {
 							TypedProperty typedProperty = props.get(key);
 							if (typedProperty!=null) {
 								if (typedProperty.isDeprecated()) {
-									deprecatedProperty(type, typedProperty, keyNode);
+									deprecatedProperty(root.getDocument().getUri(), type, typedProperty, keyNode, quickFixes.DEPRECATED_PROPERTY);
 								}
 								reconcile(root, valNode, typedProperty.getType());
 							}
@@ -255,7 +290,7 @@ public class ApplicationYamlASTReconciler implements YamlASTReconciler {
 	private void reconcile(YamlFileAST root, SequenceNode seq, Type type) {
 		if (typeUtil.isAtomic(type)) {
 			expectTypeFoundSequence(type, seq);
-		} else if (TypeUtil.isSequencable(type)) {
+		} else if (typeUtil.isSequencable(type)) {
 			Type domainType = TypeUtil.getDomainType(type);
 			if (domainType!=null) {
 				for (Node element : seq.getValue()) {
@@ -312,10 +347,41 @@ public class ApplicationYamlASTReconciler implements YamlASTReconciler {
 		problems.accept(problem(ApplicationYamlProblemType.YAML_VALUE_TYPE_MISMATCH, e.getHighlightRegion(containingRegion), ExceptionUtil.getMessage(e)));
 	}
 
-	private void unkownProperty(Node node, String name, NodeTuple entry) {
+	private void unkownProperty(String docUri, Node node, String name, NodeTuple entry, QuickfixType... fixTypes) {
 		SpringPropertyProblem p = problem(ApplicationYamlProblemType.YAML_UNKNOWN_PROPERTY, node, "Unknown property '"+name+"'");
 		p.setPropertyName(extendForQuickfix(StringUtil.camelCaseToHyphens(name), entry.getValueNode()));
+
+		for (QuickfixType fixType : fixTypes) {
+			if (fixType != null) {
+				switch (fixType.getId()) {
+				case CommonQuickfixes.MISSING_PROPERTY_APP_QF_ID:
+					for (String missingProp : getUnknownProperties(name, entry.getValueNode(), new ArrayList<>())) {
+						p.addQuickfix(new QuickfixData<>(fixType,
+								new MissingPropertyData(new TextDocumentIdentifier(docUri), missingProp),
+								"Create metadata for `" + missingProp +"`"));
+					}
+					break;
+				}
+			}
+		}
+
 		problems.accept(p);
+	}
+
+	private List<String> getUnknownProperties(String name, Node valueNode, List<String> unknownProps) {
+		if (valueNode instanceof MappingNode) {
+			MappingNode map = (MappingNode) valueNode;
+			for (NodeTuple entry : map.getValue()) {
+				String key = NodeUtil.asScalar(entry.getKeyNode());
+				if (key!=null) {
+					key = StringUtil.camelCaseToHyphens(key);
+					getUnknownProperties(name+"."+key, entry.getValueNode(), unknownProps);
+				}
+			}
+		} else {
+			unknownProps.add(name);
+		}
+		return unknownProps;
 	}
 
 	private String extendForQuickfix(String name, Node node) {
@@ -363,24 +429,30 @@ public class ApplicationYamlASTReconciler implements YamlASTReconciler {
 		problems.accept(problem(problemType, node, "Expecting a '"+typeUtil.niceTypeName(type)+"' but got "+describe(node)));
 	}
 
-	private void deprecatedProperty(PropertyInfo property, Node keyNode) {
-		SpringPropertyProblem problem = deprecatedPropertyProblem(property.getId(), null, keyNode,
-				property.getDeprecationReplacement(), property.getDeprecationReason());
+	private void deprecatedProperty(String docUri, PropertyInfo property, Node keyNode, QuickfixType fixType) {
+		SpringPropertyProblem problem = deprecatedPropertyProblem(docUri, property.getId(), null, keyNode,
+				property.getDeprecationReplacement(), property.getDeprecationReason(), property.getDeprecationLevel(), fixType);
 		problem.setMetadata(property);
 		//problem.setProblemFixer(ReplaceDeprecatedYamlQuickfix.FIXER);
 		problems.accept(problem);
 	}
 
-	private void deprecatedProperty(Type contextType, TypedProperty property, Node keyNode) {
-		SpringPropertyProblem problem = deprecatedPropertyProblem(property.getName(), typeUtil.niceTypeName(contextType),
-				keyNode, property.getDeprecationReplacement(), property.getDeprecationReason());
+	private void deprecatedProperty(String docUri, Type contextType, TypedProperty property, Node keyNode, QuickfixType fixType) {
+		SpringPropertyProblem problem = deprecatedPropertyProblem(docUri, property.getName(), typeUtil.niceTypeName(contextType),
+				keyNode, property.getDeprecationReplacement(), property.getDeprecationReason(), property.getDeprecationLevel(), fixType);
 		problems.accept(problem);
 	}
 
-	protected SpringPropertyProblem deprecatedPropertyProblem(String name, String contextType, Node keyNode,
-			String replace, String reason) {
-		SpringPropertyProblem problem = problem(YAML_DEPRECATED, keyNode, TypeUtil.deprecatedPropertyMessage(name, contextType, replace, reason));
+	protected SpringPropertyProblem deprecatedPropertyProblem(String docUri, String name, String contextType, Node keyNode,
+			String replace, String reason, Level level, QuickfixType fixType) {
+		ApplicationYamlProblemType problemType = level==Level.ERROR ? YAML_DEPRECATED_ERROR : YAML_DEPRECATED_WARNING;
+		SpringPropertyProblem problem = problem(problemType, keyNode, TypeUtil.deprecatedPropertyMessage(name, contextType, replace, reason));
 		problem.setPropertyName(name);
+		Range range = new Range(new Position(keyNode.getStartMark().getLine(), keyNode.getStartMark().getColumn()),
+				new Position(keyNode.getEndMark().getLine(), keyNode.getEndMark().getColumn()));
+		if (StringUtil.hasText(replace)) {
+			problem.addQuickfix(new QuickfixData<>(fixType, new DeprecatedPropertyData(docUri, range, replace), "Replace with `" + replace + "`"));
+		}
 		return problem;
 	}
 

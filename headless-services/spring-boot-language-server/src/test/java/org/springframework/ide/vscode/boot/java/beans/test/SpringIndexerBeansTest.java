@@ -1,18 +1,22 @@
 /*******************************************************************************
- * Copyright (c) 2017, 2018 Pivotal, Inc.
+ * Copyright (c) 2017, 2019 Pivotal, Inc.
  * All rights reserved. This program and the accompanying materials
  * are made available under the terms of the Eclipse Public License v1.0
  * which accompanies this distribution, and is available at
- * http://www.eclipse.org/legal/epl-v10.html
+ * https://www.eclipse.org/legal/epl-v10.html
  *
  * Contributors:
  *     Pivotal, Inc. - initial API and implementation
  *******************************************************************************/
 package org.springframework.ide.vscode.boot.java.beans.test;
 
+import static org.junit.Assert.assertEquals;
+
 import java.io.File;
+import java.util.List;
 import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.TimeUnit;
+import java.util.stream.Collectors;
 
 import org.eclipse.lsp4j.TextDocumentIdentifier;
 import org.junit.Before;
@@ -21,10 +25,11 @@ import org.junit.runner.RunWith;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.context.annotation.Import;
 import org.springframework.ide.vscode.boot.app.BootLanguageServerInitializer;
+import org.springframework.ide.vscode.boot.app.SpringSymbolIndex;
 import org.springframework.ide.vscode.boot.bootiful.BootLanguageServerTest;
 import org.springframework.ide.vscode.boot.bootiful.SymbolProviderTestConf;
-import org.springframework.ide.vscode.boot.java.BootJavaLanguageServerComponents;
-import org.springframework.ide.vscode.boot.java.utils.SpringIndexer;
+import org.springframework.ide.vscode.boot.java.beans.BeansSymbolAddOnInformation;
+import org.springframework.ide.vscode.boot.java.handlers.SymbolAddOnInformation;
 import org.springframework.ide.vscode.commons.languageserver.java.JavaProjectFinder;
 import org.springframework.ide.vscode.project.harness.BootLanguageServerHarness;
 import org.springframework.ide.vscode.project.harness.ProjectsHarness;
@@ -43,7 +48,7 @@ public class SpringIndexerBeansTest {
 	@Autowired private JavaProjectFinder projectFinder;
 
 	private File directory;
-	@Autowired private SpringIndexer indexer;
+	@Autowired private SpringSymbolIndex indexer;
 
 	@Before
 	public void setup() throws Exception {
@@ -67,6 +72,19 @@ public class SpringIndexerBeansTest {
 				SpringIndexerHarness.symbol("@Configuration", "@+ 'simpleConfiguration' (@Configuration <: @Component) SimpleConfiguration"),
 				SpringIndexerHarness.symbol("@Bean", "@+ 'simpleBean' (@Bean) BeanClass")
 		);
+
+		List<? extends SymbolAddOnInformation> addon = indexer.getAdditonalInformation(docUri);
+		assertEquals(2, addon.size());
+
+		assertEquals(1, addon.stream()
+			.filter(info -> info instanceof BeansSymbolAddOnInformation)
+			.filter(info -> "simpleConfiguration".equals(((BeansSymbolAddOnInformation)info).getBeanID()))
+			.count());
+
+		assertEquals(1, addon.stream()
+				.filter(info -> info instanceof BeansSymbolAddOnInformation)
+				.filter(info -> "simpleBean".equals(((BeansSymbolAddOnInformation)info).getBeanID()))
+				.count());
 	}
 
 	@Test public void testScanSpecialConfigurationClass() throws Exception {

@@ -1,9 +1,9 @@
 /*******************************************************************************
- * Copyright (c) 2015 Pivotal, Inc.
+ * Copyright (c) 2015, 2019 Pivotal, Inc.
  * All rights reserved. This program and the accompanying materials
  * are made available under the terms of the Eclipse Public License v1.0
  * which accompanies this distribution, and is available at
- * http://www.eclipse.org/legal/epl-v10.html
+ * https://www.eclipse.org/legal/epl-v10.html
  *
  * Contributors:
  *     Pivotal, Inc. - initial API and implementation
@@ -29,17 +29,17 @@ import org.springframework.ide.vscode.project.harness.ProjectsHarness;
 
 /**
  * Tests for TypeUtil
- * 
+ *
  * @author Kris De Volder
- * @author Alex Boyko 
+ * @author Alex Boyko
  *
  */
 public class TypeUtilTest {
-	
+
 	private ProjectsHarness projects = ProjectsHarness.INSTANCE;
 	private IJavaProject project;
 	private TypeUtil typeUtil;
-	
+
 	private Type getPropertyType(Type type, String propName, EnumCaseMode enumMode, BeanPropertyNameMode beanMode) {
 		List<TypedProperty> props = getProperties(type, enumMode, beanMode);
 		assertNotNull(props);
@@ -68,8 +68,8 @@ public class TypeUtilTest {
 	@Test
 	public void testGetProperties() throws Exception {
 		useProject("enums-boot-1.3.2-app");
-		assertNotNull(project.findType("demo.Color"));
-		assertNotNull(project.findType("demo.ColorData"));
+		assertNotNull(project.getIndex().findType("demo.Color"));
+		assertNotNull(project.getIndex().findType("demo.ColorData"));
 
 
 		Type data = TypeParser.parse("demo.ColorData");
@@ -139,7 +139,7 @@ public class TypeUtilTest {
 
 	private void useProject(String name) throws Exception {
 		project = projects.mavenProject(name);;
-		typeUtil = new TypeUtil(project);
+		typeUtil = new TypeUtil(null, project);
 	}
 
 }

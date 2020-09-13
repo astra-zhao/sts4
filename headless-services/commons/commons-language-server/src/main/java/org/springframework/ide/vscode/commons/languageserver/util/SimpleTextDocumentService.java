@@ -1,16 +1,16 @@
 /*******************************************************************************
- * Copyright (c) 2016, 2018 Pivotal, Inc.
+ * Copyright (c) 2016, 2020 Pivotal, Inc.
  * All rights reserved. This program and the accompanying materials
  * are made available under the terms of the Eclipse Public License v1.0
  * which accompanies this distribution, and is available at
- * http://www.eclipse.org/legal/epl-v10.html
+ * https://www.eclipse.org/legal/epl-v10.html
  *
  * Contributors:
  *     Pivotal, Inc. - initial API and implementation
  *******************************************************************************/
 package org.springframework.ide.vscode.commons.languageserver.util;
 
-import java.util.ArrayList;
+import java.time.Duration;
 import java.util.Collection;
 import java.util.Collections;
 import java.util.HashMap;
@@ -20,6 +20,7 @@ import java.util.concurrent.CompletableFuture;
 import java.util.function.Consumer;
 import java.util.stream.Collectors;
 
+import org.eclipse.lsp4j.CodeAction;
 import org.eclipse.lsp4j.CodeActionParams;
 import org.eclipse.lsp4j.CodeLens;
 import org.eclipse.lsp4j.CodeLensParams;
@@ -27,6 +28,7 @@ import org.eclipse.lsp4j.Command;
 import org.eclipse.lsp4j.CompletionItem;
 import org.eclipse.lsp4j.CompletionList;
 import org.eclipse.lsp4j.CompletionParams;
+import org.eclipse.lsp4j.DefinitionParams;
 import org.eclipse.lsp4j.Diagnostic;
 import org.eclipse.lsp4j.DidChangeTextDocumentParams;
 import org.eclipse.lsp4j.DidCloseTextDocumentParams;
@@ -34,16 +36,21 @@ import org.eclipse.lsp4j.DidOpenTextDocumentParams;
 import org.eclipse.lsp4j.DidSaveTextDocumentParams;
 import org.eclipse.lsp4j.DocumentFormattingParams;
 import org.eclipse.lsp4j.DocumentHighlight;
+import org.eclipse.lsp4j.DocumentHighlightParams;
 import org.eclipse.lsp4j.DocumentOnTypeFormattingParams;
 import org.eclipse.lsp4j.DocumentRangeFormattingParams;
+import org.eclipse.lsp4j.DocumentSymbol;
 import org.eclipse.lsp4j.DocumentSymbolParams;
 import org.eclipse.lsp4j.Hover;
+import org.eclipse.lsp4j.HoverParams;
 import org.eclipse.lsp4j.Location;
+import org.eclipse.lsp4j.LocationLink;
 import org.eclipse.lsp4j.PublishDiagnosticsParams;
 import org.eclipse.lsp4j.Range;
 import org.eclipse.lsp4j.ReferenceParams;
 import org.eclipse.lsp4j.RenameParams;
 import org.eclipse.lsp4j.SignatureHelp;
+import org.eclipse.lsp4j.SignatureHelpParams;
 import org.eclipse.lsp4j.SymbolInformation;
 import org.eclipse.lsp4j.TextDocumentContentChangeEvent;
 import org.eclipse.lsp4j.TextDocumentIdentifier;
@@ -55,24 +62,32 @@ import org.eclipse.lsp4j.WorkspaceEdit;
 import org.eclipse.lsp4j.jsonrpc.messages.Either;
 import org.eclipse.lsp4j.services.LanguageClient;
 import org.eclipse.lsp4j.services.TextDocumentService;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
+import org.springframework.ide.vscode.commons.languageserver.config.LanguageServerProperties;
 import org.springframework.ide.vscode.commons.languageserver.quickfix.Quickfix;
 import org.springframework.ide.vscode.commons.util.Assert;
 import org.springframework.ide.vscode.commons.util.AsyncRunner;
 import org.springframework.ide.vscode.commons.util.BadLocationException;
 import org.springframework.ide.vscode.commons.util.CollectorUtil;
 import org.springframework.ide.vscode.commons.util.ExceptionUtil;
-import org.springframework.ide.vscode.commons.util.Log;
 import org.springframework.ide.vscode.commons.util.text.LanguageId;
 import org.springframework.ide.vscode.commons.util.text.TextDocument;
 
 import com.google.common.collect.ImmutableList;
 
+import reactor.core.publisher.Mono;
+
 public class SimpleTextDocumentService implements TextDocumentService, DocumentEventListenerManager {
 
+	private static Logger log = LoggerFactory.getLogger(SimpleTextDocumentService.class);
+	
 	final private SimpleLanguageServer server;
+	final private LanguageServerProperties props;
 	private Map<String, TrackedDocument> documents = new HashMap<>();
 	private ListenerList<TextDocumentContentChange> documentChangeListeners = new ListenerList<>();
 	private ListenerList<TextDocument> documentCloseListeners = new ListenerList<>();
+	private ListenerList<TextDocument> documentOpenListeners = new ListenerList<>();
 
 	private CompletionHandler completionHandler = null;
 	private CompletionResolveHandler completionResolveHandler = null;
@@ -80,6 +95,7 @@ public class SimpleTextDocumentService implements TextDocumentService, DocumentE
 	private HoverHandler hoverHandler = null;
 	private DefinitionHandler definitionHandler;
 	private ReferencesHandler referencesHandler;
+
 	private DocumentSymbolHandler documentSymbolHandler;
 	private DocumentHighlightHandler documentHighlightHandler;
 
@@ -89,8 +105,10 @@ public class SimpleTextDocumentService implements TextDocumentService, DocumentE
 	private List<Consumer<TextDocumentSaveChange>> documentSaveListeners = ImmutableList.of();
 	private AsyncRunner async;
 
-	public SimpleTextDocumentService(SimpleLanguageServer server) {
+
+	public SimpleTextDocumentService(SimpleLanguageServer server, LanguageServerProperties props) {
 		this.server = server;
+		this.props = props;
 		this.async = server.getAsync();
 	}
 
@@ -156,14 +174,16 @@ public class SimpleTextDocumentService implements TextDocumentService, DocumentE
 			VersionedTextDocumentIdentifier docId = params.getTextDocument();
 			String url = docId.getUri();
 //			Log.debug("didChange: "+url);
-			if (url!=null) {
+			if (url != null) {
 				TextDocument doc = getDocument(url);
-				List<TextDocumentContentChangeEvent> changes = params.getContentChanges();
-				doc.apply(params);
-				didChangeContent(doc, changes);
+				if (doc != null) {
+					List<TextDocumentContentChangeEvent> changes = params.getContentChanges();
+					doc.apply(params);
+					didChangeContent(doc, changes);
+				}
 			}
 		} catch (BadLocationException e) {
-			Log.log(e);
+			log.error("", e);
 		}
 	  });
 	}
@@ -176,11 +196,15 @@ public class SimpleTextDocumentService implements TextDocumentService, DocumentE
 		//Log.info("didOpen: "+params.getTextDocument().getUri());
 		LanguageId languageId = LanguageId.of(docId.getLanguageId());
 		int version = docId.getVersion();
-		if (url!=null) {
+		if (url != null) {
+
 			String text = params.getTextDocument().getText();
 			TrackedDocument td = createDocument(url, languageId, version, text).open();
-			Log.debug("Opened "+td.getOpenCount()+" times: "+url);
+			log.debug("Opened " + td.getOpenCount() + " times: " + url);
 			TextDocument doc = td.getDocument();
+
+			documentOpenListeners.fire(doc);
+
 			TextDocumentContentChangeEvent change = new TextDocumentContentChangeEvent() {
 				@Override
 				public Range getRange() {
@@ -210,9 +234,9 @@ public class SimpleTextDocumentService implements TextDocumentService, DocumentE
 		String url = params.getTextDocument().getUri();
 		if (url!=null) {
 			TrackedDocument doc = documents.get(url);
-			if (doc!=null) {
+			if (doc != null) {
 				if (doc.close()) {
-					Log.info("Closed: "+url);
+					log.info("Closed: "+url);
 					//Clear diagnostics when a file is closed. This makes the errors disapear when the language is changed for
 					// a document (this resulst in a dicClose even as being sent to the language server if that changes make the
 					// document go 'out of scope'.
@@ -220,10 +244,10 @@ public class SimpleTextDocumentService implements TextDocumentService, DocumentE
 					documentCloseListeners.fire(doc.getDocument());
 					documents.remove(url);
 				} else {
-					Log.warn("Close event ignored! Assuming document still open because openCount = "+doc.getOpenCount());
+					log.warn("Close event ignored! Assuming document still open because openCount = "+doc.getOpenCount());
 				}
 			} else {
-				Log.warn("Document closed, but it didn't exist! Close event ignored");
+				log.warn("Document closed, but it didn't exist! Close event ignored");
 			}
 		}
 	  });
@@ -231,6 +255,10 @@ public class SimpleTextDocumentService implements TextDocumentService, DocumentE
 
 	void didChangeContent(TextDocument doc, List<TextDocumentContentChangeEvent> changes) {
 		documentChangeListeners.fire(new TextDocumentContentChange(doc, changes));
+	}
+
+	public void onDidOpen(Consumer<TextDocument> l) {
+		documentOpenListeners.add(l);
 	}
 
 	public void onDidChangeContent(Consumer<TextDocumentContentChange> l) {
@@ -251,19 +279,17 @@ public class SimpleTextDocumentService implements TextDocumentService, DocumentE
 
 	public synchronized TextDocument getDocument(String url) {
 		TrackedDocument doc = documents.get(url);
-		if (doc==null) {
-			Log.warn("Trying to get document ["+url+"] but it did not exists. Creating it with language-id 'plaintext'");
-			doc = createDocument(url, LanguageId.PLAINTEXT, 0, "");
-		}
-		return doc.getDocument();
+		return doc != null ? doc.getDocument() : null;
 	}
 
 	private synchronized TrackedDocument createDocument(String url, LanguageId languageId, int version, String text) {
 		TrackedDocument existingDoc = documents.get(url);
-		if (existingDoc!=null) {
-			Log.warn("Creating document ["+url+"] but it already exists. Reusing existing!");
+
+		if (existingDoc != null) {
+			log.warn("Creating document ["+url+"] but it already exists. Reusing existing!");
 			return existingDoc;
 		}
+
 		TrackedDocument doc = new TrackedDocument(new TextDocument(url, languageId, version, text));
 		documents.put(url, doc);
 		return doc;
@@ -289,40 +315,74 @@ public class SimpleTextDocumentService implements TextDocumentService, DocumentE
 
 	@Override
 	public CompletableFuture<CompletionItem> resolveCompletionItem(CompletionItem unresolved) {
-	  return async.invoke(() -> {
-		CompletionResolveHandler h = completionResolveHandler;
-		if (h!=null) {
-			return h.handle(unresolved);
-		}
-		return null;
-	  });
+		log.info("Completion item resolve request received: {}", unresolved.getLabel());
+		return async.invoke(() -> {
+			try {
+				CompletionResolveHandler h = completionResolveHandler;
+				if (h!=null) {
+					log.info("Completion item resolve request starting {}", unresolved.getLabel());
+					return h.handle(unresolved);
+				}
+			} finally {
+				log.info("Completion item resolve request terminated.");
+			}
+			return null;
+		});
 	}
 
 	@Override
-	public CompletableFuture<Hover> hover(TextDocumentPositionParams position) {
-	  return async.invoke(() -> {
-		HoverHandler h = hoverHandler;
-		if (h!=null) {
-			return hoverHandler.handle(position);
+	public CompletableFuture<Hover> hover(HoverParams hoverParams) {
+		log.debug("hover requested for {}", hoverParams.getPosition());
+		long timeout = props.getHoverTimeout();
+		return timeout <= 0 ? async.invoke(() -> computeHover(hoverParams)) : async.invoke(Duration.ofMillis(timeout), () -> computeHover(hoverParams), Mono.fromRunnable(() -> {
+			log.error("Hover Request handler timed out after {} ms.", timeout);
+		}));
+	}
+	
+	private Hover computeHover(HoverParams hoverParams) {
+		try {
+			log.debug("hover handler starting");
+			HoverHandler h = hoverHandler;
+			if (h != null) {
+				return hoverHandler.handle(hoverParams);
+			}
+			log.debug("no hover because there is no handler");
+			return null;
+		} finally {
+			log.debug("hover handler finished");
 		}
-		return null;
-	  });
 	}
 
 	@Override
-	public CompletableFuture<SignatureHelp> signatureHelp(TextDocumentPositionParams position) {
+	public CompletableFuture<SignatureHelp> signatureHelp(SignatureHelpParams signatureHelpParams) {
 		return CompletableFuture.completedFuture(null);
 	}
 
 	@Override
-	public CompletableFuture<List<? extends Location>> definition(TextDocumentPositionParams position) {
-	  return async.invoke(() -> {
+	public CompletableFuture<Either<List<? extends Location>, List<? extends LocationLink>>> definition(
+			DefinitionParams definitionParams) {
+
 		DefinitionHandler h = this.definitionHandler;
-		if (h!=null) {
-			return h.handle(position);
+		if (h != null) {
+			return async.invoke(() -> {
+				List<LocationLink> locations = h.handle(definitionParams);
+				if (locations==null) {
+					// vscode client does not like to receive null result. See: https://github.com/spring-projects/sts4/issues/309
+					locations = ImmutableList.of();
+				}
+				// Workaround for https://github.com/eclipse-theia/theia/issues/6414
+				// Theia does not support LocationLink yet
+				switch (LspClient.currentClient()) {
+					case THEIA:
+					case ATOM:
+					case INTELLIJ:	
+						return Either.forLeft(locations.stream().map(link -> new Location(link.getTargetUri(), link.getTargetRange())).collect(Collectors.toList()));
+					default:
+						return Either.forRight(locations);
+				}
+			});
 		}
-		return Collections.emptyList();
-	  });
+		return CompletableFuture.completedFuture(Either.forLeft(ImmutableList.of()));
 	}
 
 	@Override
@@ -330,35 +390,50 @@ public class SimpleTextDocumentService implements TextDocumentService, DocumentE
 	  return async.invoke(() -> {
 		ReferencesHandler h = this.referencesHandler;
 		if (h != null) {
-			return h.handle(params);
+			List<? extends Location> list = h.handle(params);
+			return list != null && list.isEmpty() ? null : list;
 		}
-		return Collections.emptyList();
+		return null;
 	  });
 	}
 
 	@Override
-	public CompletableFuture<List<? extends SymbolInformation>> documentSymbol(DocumentSymbolParams params) {
-	  return async.invoke(() -> {
-		DocumentSymbolHandler documentSymbolHandler = this.documentSymbolHandler;
-		if (documentSymbolHandler==null) {
+	public CompletableFuture<List<Either<SymbolInformation, DocumentSymbol>>> documentSymbol(DocumentSymbolParams params) {
+		return async.invoke(() -> {
+			DocumentSymbolHandler h = this.documentSymbolHandler;
+			if (h!=null) {
+				server.waitForReconcile();
+				if (server.hasHierarchicalDocumentSymbolSupport() && h instanceof HierarchicalDocumentSymbolHandler) {
+					List<? extends DocumentSymbol> r = ((HierarchicalDocumentSymbolHandler)h).handleHierarchic(params);
+					//handle it when symbolHandler is sloppy and returns null instead of empty list.
+					return r == null
+							? ImmutableList.of()
+							: r.stream().map(symbolInfo -> Either.<SymbolInformation, DocumentSymbol>forRight(symbolInfo))
+										.collect(Collectors.toList());
+				} else {
+					List<? extends SymbolInformation> r = h.handle(params);
+					//handle it when symbolHandler is sloppy and returns null instead of empty list.
+					return r == null
+							? ImmutableList.of()
+							: r.stream().map(symbolInfo -> Either.<SymbolInformation, DocumentSymbol>forLeft(symbolInfo))
+										.collect(Collectors.toList());
+				}
+			}
 			return ImmutableList.of();
-		}
-		server.waitForReconcile();
-		List<? extends SymbolInformation> r = documentSymbolHandler.handle(params);
-		//handle it when symbolHandler is sloppy and returns null instead of empty list.
-		return r == null ? ImmutableList.of() : r;
-	  });
+		});
 	}
 
 	@Override
-	public CompletableFuture<List<? extends Command>> codeAction(CodeActionParams params) {
+	public CompletableFuture<List<Either<Command, CodeAction>>> codeAction(CodeActionParams params) {
 	  return async.invoke(() -> {
 		TrackedDocument doc = documents.get(params.getTextDocument().getUri());
 		if (doc!=null) {
-			return doc.getQuickfixes().stream()
-					.filter((fix) -> fix.appliesTo(params.getRange(), params.getContext()))
-					.map(Quickfix::getCodeAction)
-					.collect(CollectorUtil.toImmutableList());
+			ImmutableList<Either<Command,CodeAction>> list = doc.getQuickfixes().stream()
+				.filter((fix) -> fix.appliesTo(params.getRange(), params.getContext()))
+				.map(Quickfix::getCodeAction)
+				.map(command -> Either.<Command, CodeAction>forLeft(command))
+				.collect(CollectorUtil.toImmutableList());
+			return list;
 		} else {
 			return ImmutableList.of();
 		}
@@ -415,11 +490,13 @@ public class SimpleTextDocumentService implements TextDocumentService, DocumentE
 		if (documentSaveListeners != null) {
 			TextDocumentIdentifier docId = params.getTextDocument();
 			String url = docId.getUri();
-			Log.debug("didSave: "+url);
-			if (url!=null) {
+			log.debug("didSave: "+url);
+			if (url != null) {
 				TextDocument doc = getDocument(url);
-				for (Consumer<TextDocumentSaveChange> l : documentSaveListeners) {
-					l.accept(new TextDocumentSaveChange(doc));
+				if (doc != null) {
+					for (Consumer<TextDocumentSaveChange> l : documentSaveListeners) {
+						l.accept(new TextDocumentSaveChange(doc));
+					}
 				}
 			}
 		}
@@ -436,7 +513,7 @@ public class SimpleTextDocumentService implements TextDocumentService, DocumentE
 		}
 	}
 
-	public void setQuickfixes(TextDocumentIdentifier docId, List<Quickfix> quickfixes) {
+	public void setQuickfixes(TextDocumentIdentifier docId, List<Quickfix<?>> quickfixes) {
 		TrackedDocument td = documents.get(docId.getUri());
 		if (td!=null) {
 			td.setQuickfixes(quickfixes);
@@ -453,11 +530,11 @@ public class SimpleTextDocumentService implements TextDocumentService, DocumentE
 	}
 
 	@Override
-	public CompletableFuture<List<? extends DocumentHighlight>> documentHighlight(TextDocumentPositionParams position) {
+	public CompletableFuture<List<? extends DocumentHighlight>> documentHighlight(DocumentHighlightParams highlightParams) {
 	  return async.invoke(() -> {
 		DocumentHighlightHandler handler = this.documentHighlightHandler;
 		if (handler != null) {
-			return handler.handle(position);
+			return handler.handle(highlightParams);
 		}
 		return NO_HIGHLIGHTS;
 	  });

@@ -3,7 +3,7 @@
  * All rights reserved. This program and the accompanying materials
  * are made available under the terms of the Eclipse Public License v1.0
  * which accompanies this distribution, and is available at
- * http://www.eclipse.org/legal/epl-v10.html
+ * https://www.eclipse.org/legal/epl-v10.html
  *
  * Contributors:
  *     Pivotal, Inc. - initial API and implementation
@@ -17,6 +17,7 @@ import java.util.ArrayList;
 import java.util.List;
 import java.util.concurrent.TimeoutException;
 
+import org.springframework.ide.vscode.commons.util.Assert;
 import org.springframework.ide.vscode.commons.util.ExternalCommand;
 import org.springframework.ide.vscode.commons.util.ExternalProcess;
 
@@ -32,6 +33,7 @@ public class MavenBuilder {
 	public void execute() throws IOException, InterruptedException, TimeoutException {
 		Path mvnwPath = System.getProperty("os.name").toLowerCase().startsWith("win") ? projectPath.resolve("mvnw.cmd")
 				: projectPath.resolve("mvnw");
+		Assert.isLegal(mvnwPath.toFile().isFile(), "No maven wrapper found at: "+mvnwPath);
 		mvnwPath.toFile().setExecutable(true);
 		List<String> all = new ArrayList<>(1 + targets.size() + properties.size());
 		all.add(mvnwPath.toAbsolutePath().toString());
@@ -40,6 +42,8 @@ public class MavenBuilder {
 		ExternalProcess process = new ExternalProcess(projectPath.toFile(),
 				new ExternalCommand(all.toArray(new String[all.size()])), true);
 		if (process.getExitValue() != 0) {
+			System.err.println("Failed to build test project!");
+			System.err.println(process);
 			throw new RuntimeException("Failed to build test project! " + process);
 		}
 	}

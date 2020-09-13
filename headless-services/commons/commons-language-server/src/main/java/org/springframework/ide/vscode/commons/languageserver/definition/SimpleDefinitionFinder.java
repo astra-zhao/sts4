@@ -1,9 +1,9 @@
 /*******************************************************************************
- * Copyright (c) 2017, 2018 Pivotal, Inc.
+ * Copyright (c) 2017, 2020 Pivotal, Inc.
  * All rights reserved. This program and the accompanying materials
  * are made available under the terms of the Eclipse Public License v1.0
  * which accompanies this distribution, and is available at
- * http://www.eclipse.org/legal/epl-v10.html
+ * https://www.eclipse.org/legal/epl-v10.html
  *
  * Contributors:
  *     Pivotal, Inc. - initial API and implementation
@@ -13,11 +13,13 @@ package org.springframework.ide.vscode.commons.languageserver.definition;
 import java.util.Collections;
 import java.util.List;
 
-import org.eclipse.lsp4j.Location;
-import org.eclipse.lsp4j.TextDocumentPositionParams;
+import org.eclipse.lsp4j.DefinitionParams;
+import org.eclipse.lsp4j.LocationLink;
+import org.eclipse.lsp4j.Range;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
 import org.springframework.ide.vscode.commons.languageserver.util.DefinitionHandler;
 import org.springframework.ide.vscode.commons.languageserver.util.SimpleLanguageServer;
-import org.springframework.ide.vscode.commons.util.Log;
 import org.springframework.ide.vscode.commons.util.text.TextDocument;
 
 import com.google.common.collect.ImmutableList;
@@ -26,18 +28,20 @@ import com.google.common.collect.ImmutableList;
  * {@link SimpleDefinitionFinder} provides a 'dummy' implementation of
  * @author Kris De Volder
  */
-public class SimpleDefinitionFinder<T extends SimpleLanguageServer> implements DefinitionHandler {
+public class SimpleDefinitionFinder implements DefinitionHandler {
+	
+	private static final Logger log = LoggerFactory.getLogger(SimpleDefinitionFinder.class);
 
-	protected final T server;
+	protected final SimpleLanguageServer server;
 
-	public SimpleDefinitionFinder(T server) {
+	public SimpleDefinitionFinder(SimpleLanguageServer server) {
 		this.server = server;
 	}
 
 	@Override
-	public List<Location> handle(TextDocumentPositionParams params) {
+	public List<LocationLink> handle(DefinitionParams params) {
 		try {
-			TextDocument doc = server.getTextDocumentService().get(params);
+			TextDocument doc = server.getTextDocumentService().get(params.getTextDocument().getUri());
 			if (doc != null) {
 				int offset = doc.toOffset(params.getPosition());
 				int start = offset;
@@ -50,19 +54,18 @@ public class SimpleDefinitionFinder<T extends SimpleLanguageServer> implements D
 					end++;
 				}
 				String word = doc.textBetween(start, end);
-				Log.log("Looking for definition of '"+word+"'");
 				String text = doc.get();
 				int def = text.indexOf(word);
 				if (def>=0) {
-					Location loc = new Location(params.getTextDocument().getUri(),
-						doc.toRange(def, word.length())
+					Range targetRange = doc.toRange(def, word.length());
+					LocationLink link = new LocationLink(params.getTextDocument().getUri(),
+						targetRange, targetRange, doc.toRange(start, end - start)
 					);
-					Log.log("definition: "+loc);
-					return ImmutableList.of(loc);
+					return ImmutableList.of(link);
 				}
 			}
 		} catch (Exception e) {
-			Log.log(e);
+			log.error("", e);
 		}
 		return Collections.emptyList();
 	}

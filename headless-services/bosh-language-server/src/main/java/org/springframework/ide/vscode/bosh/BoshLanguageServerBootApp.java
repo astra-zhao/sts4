@@ -1,9 +1,9 @@
 /*******************************************************************************
- * Copyright (c) 2018 Pivotal, Inc.
+ * Copyright (c) 2018, 2019 Pivotal, Inc.
  * All rights reserved. This program and the accompanying materials
  * are made available under the terms of the Eclipse Public License v1.0
  * which accompanies this distribution, and is available at
- * http://www.eclipse.org/legal/epl-v10.html
+ * https://www.eclipse.org/legal/epl-v10.html
  *
  * Contributors:
  *     Pivotal, Inc. - initial API and implementation
@@ -17,7 +17,9 @@ import org.springframework.context.annotation.Bean;
 import org.springframework.ide.vscode.bosh.models.BoshCommandCloudConfigProvider;
 import org.springframework.ide.vscode.bosh.models.BoshCommandReleasesProvider;
 import org.springframework.ide.vscode.bosh.models.BoshCommandStemcellsProvider;
+import org.springframework.ide.vscode.commons.languageserver.LanguageServerRunner;
 import org.springframework.ide.vscode.commons.util.LogRedirect;
+import org.springframework.ide.vscode.commons.yaml.reconcile.ASTTypeCache;
 
 @SpringBootApplication
 public class BoshLanguageServerBootApp {
@@ -25,12 +27,14 @@ public class BoshLanguageServerBootApp {
 	private static final String SERVER_NAME = "bosh-language-server";
 
 	public static void main(String[] args) throws Exception {
+		System.setProperty(LanguageServerRunner.SYSPROP_LANGUAGESERVER_NAME, SERVER_NAME); //makes it easy to recognize language server processes - and set this as early as possible
+		
 		LogRedirect.bootRedirectToFile(SERVER_NAME); //TODO: use boot (or logback realy) to configure logging instead.
 		SpringApplication.run(BoshLanguageServerBootApp.class, args);
 	}
 
-	@Bean public String serverName() {
-		return SERVER_NAME;
+	@Bean public ASTTypeCache astTypeCache() {
+		return new ASTTypeCache();
 	}
 
 	@ConditionalOnMissingClass("org.springframework.ide.vscode.languageserver.testharness.LanguageServerHarness")

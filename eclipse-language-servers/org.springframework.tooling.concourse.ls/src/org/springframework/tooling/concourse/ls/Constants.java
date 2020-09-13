@@ -3,7 +3,7 @@
  * All rights reserved. This program and the accompanying materials
  * are made available under the terms of the Eclipse Public License v1.0
  * which accompanies this distribution, and is available at
- * http://www.eclipse.org/legal/epl-v10.html
+ * https://www.eclipse.org/legal/epl-v10.html
  *
  * Contributors:
  *     Pivotal, Inc. - initial API and implementation
@@ -16,6 +16,5 @@ package org.springframework.tooling.concourse.ls;
 public class Constants {
 	
 	public static final String PLUGIN_ID = "org.springframework.tooling.concourse.ls";
-	public static final String LANGUAGE_SERVER_VERSION = "1.1.1-SNAPSHOT";
 
 }

@@ -3,7 +3,7 @@
  * All rights reserved. This program and the accompanying materials
  * are made available under the terms of the Eclipse Public License v1.0
  * which accompanies this distribution, and is available at
- * http://www.eclipse.org/legal/epl-v10.html
+ * https://www.eclipse.org/legal/epl-v10.html
  *
  * Contributors:
  *     Pivotal, Inc. - initial API and implementation
@@ -16,6 +16,7 @@ import java.util.List;
 import java.util.Map;
 import java.util.stream.Collectors;
 
+import org.eclipse.lsp4j.SymbolKind;
 import org.springframework.ide.vscode.commons.languageserver.reconcile.IProblemCollector;
 import org.springframework.ide.vscode.commons.util.MimeTypes;
 import org.springframework.ide.vscode.commons.util.PartialCollection;
@@ -32,6 +33,7 @@ import org.springframework.ide.vscode.commons.yaml.path.YamlPath;
 import org.springframework.ide.vscode.commons.yaml.path.YamlPathSegment;
 import org.springframework.ide.vscode.commons.yaml.reconcile.YamlSchemaProblems;
 import org.springframework.ide.vscode.commons.yaml.reconcile.YamlSchemaValueParsers;
+import org.springframework.ide.vscode.commons.yaml.reconcile.TypeBasedYamlHierarchicalSymbolHandler.HierarchicalDefType;
 import org.springframework.ide.vscode.commons.yaml.schema.BasicYValueHint;
 import org.springframework.ide.vscode.commons.yaml.schema.DynamicSchemaContext;
 import org.springframework.ide.vscode.commons.yaml.schema.YType;
@@ -40,6 +42,7 @@ import org.springframework.ide.vscode.commons.yaml.schema.YTypeFactory.AbstractT
 import org.springframework.ide.vscode.commons.yaml.schema.YTypeFactory.YAtomicType;
 import org.springframework.ide.vscode.commons.yaml.schema.YTypeFactory.YBeanType;
 import org.springframework.ide.vscode.commons.yaml.schema.YTypeFactory.YBeanUnionType;
+import org.springframework.ide.vscode.commons.yaml.schema.YTypeFactory.YSeqType;
 import org.springframework.ide.vscode.commons.yaml.schema.YTypeFactory.YTypedPropertyImpl;
 import org.springframework.ide.vscode.commons.yaml.schema.YTypeUtil;
 import org.springframework.ide.vscode.commons.yaml.schema.YTypedProperty;
@@ -55,6 +58,7 @@ import org.yaml.snakeyaml.nodes.MappingNode;
 import org.yaml.snakeyaml.nodes.Node;
 
 import com.google.common.collect.ImmutableList;
+import com.google.common.collect.ImmutableSet;
 
 /**
  * @author Kris De Volder
@@ -72,6 +76,7 @@ public class PipelineYmlSchema implements YamlSchema {
 			hint("semver", "The 'semver' resource can set or bump version numbers."),
 			hint("github-release", "The 'github-release' resource can fetch and publish versioned GitHub resources."),
 			hint("docker-image", "The 'docker-image' resource can fetch, build, and push Docker images."),
+			hint("registry-image", "Supports checking, fetching, and pushing of images to Docker registries."),
 			hint("tracker", "The 'tracker' resource can deliver stories and bugs on Pivotal Tracker."),
 			hint("pool", "The 'pool' resource allows you to configure how to serialize use of an external system. "
 					+ "This lets you prevent test interference or overwork on shared systems."),
@@ -150,7 +155,7 @@ public class PipelineYmlSchema implements YamlSchema {
 			.parseWith(ValueParsers.NE_STRING); //TODO: use real semver parser.
 
 	public final YType t_s3_region = f.yenum("S3Region",
-			//See: http://docs.aws.amazon.com/AmazonS3/latest/API/RESTBucketPUT.html
+			//See: https://docs.aws.amazon.com/AmazonS3/latest/API/RESTBucketPUT.html
 			 "us-west-1", "us-west-2",
 			 "ca-central-1", "EU", "eu-west-1",
 			 "eu-west-2", "eu-central-1",
@@ -165,6 +170,7 @@ public class PipelineYmlSchema implements YamlSchema {
 	);
 
 	private List<YType> definitionTypes = new ArrayList<>();
+	private List<HierarchicalDefType> hierarchicDefinitions;
 
 	private GithubInfoProvider github;
 
@@ -183,7 +189,7 @@ public class PipelineYmlSchema implements YamlSchema {
 					return "The '"+parseString+"' Resource Type does not exist. Existing types: "+validValues;
 				},
 				(DynamicSchemaContext dc) -> {
-					return PartialCollection.compute(() -> models.getResourceTypeNameHints(dc));
+					return PartialCollection.compute(() -> models.getResourceTypeNameHints(dc, true));
 				}
 		);
 
@@ -232,6 +238,7 @@ public class PipelineYmlSchema implements YamlSchema {
 		addProp(t_resource, "check_every", t_duration);
 		addProp(t_resource, "tags", t_strings);
 		addProp(t_resource, "webhook_token", t_ne_string);
+		addProp(t_resource, "icon", t_ne_string);
 
 		AbstractType t_image_resource = f.ybean("ImageResource");
 		{
@@ -239,6 +246,7 @@ public class PipelineYmlSchema implements YamlSchema {
 			addProp(t_image_resource, "type", t_resource_type_name).isRequired(true);
 			t_image_resource.addProperty(resourceProperties.get("source"));
 			addProp(t_image_resource, "params", t_params);
+
 			//TODO: make ImageResourceParams dynamic based on resource type. Somewhat like below, but that code isn't exactly
 			// right (yet :-)
 //			addProp(t_image_resource, "params", f.contextAware("ImageResourceParams", (dc) ->
@@ -277,7 +285,7 @@ public class PipelineYmlSchema implements YamlSchema {
 		addProp(task, "caches", f.yseq(cache));
 		addProp(task, "outputs", f.yseq(t_output));
 		addProp(task, "run", t_command).isRequired(true);
-		addProp(task, "params", t_string_params);
+		addProp(task, "params", t_params);
 		task.require(Constraints.schemaContextAware((DynamicSchemaContext dc) -> {
 			LanguageId languageId = dc.getDocument().getLanguageId();
 			if (LanguageId.CONCOURSE_PIPELINE.equals(languageId)) {
@@ -319,6 +327,7 @@ public class PipelineYmlSchema implements YamlSchema {
 		YBeanType putStep = f.ybean("PutStep");
 		addProp(putStep, "put", t_put_get_name);
 		addProp(putStep, "resource", t_resource_name);
+		addProp(putStep, "inputs", t_strings);
 		addProp(putStep, "params", f.contextAware("PutParams", (dc) ->
 			resourceTypes.getOutParamsType(getResourceType("put", models, dc))
 		));
@@ -349,25 +358,46 @@ public class PipelineYmlSchema implements YamlSchema {
 		addProp(taskStep, "config", task);
 		addProp(taskStep, "privileged", t_boolean);
 		addProp(taskStep, "params", t_params);
+		addProp(taskStep, "vars", t_params);
 		addProp(taskStep, "image", t_resource_name);
 		addProp(taskStep, "input_mapping",  f.ymap(t_ne_string, t_maybe_resource_name));
 		addProp(taskStep, "output_mapping", t_string_params);
 		taskStep.requireOneOf("config", "file");
+		taskStep.require(Constraints.implies("vars", "file"));
+
+		YBeanType setPipelineStep = f.ybean("SetPipelineStep");
+		addProp(setPipelineStep, "set_pipeline", t_ne_string);
+		addProp(setPipelineStep, "file", t_string).isRequired(true);
+		addProp(setPipelineStep, "vars", t_params);
+		addProp(setPipelineStep, "var_files", t_strings);
 
 		YBeanType aggregateStep = f.ybean("AggregateStep");
 		YBeanType doStep = f.ybean("DoStep");
 		YBeanType tryStep = f.ybean("TryStep");
+		YBeanType inParallelStep = f.ybean("InParallelStep");
 
 		YBeanType[] stepTypes = {
 				getStep,
 				putStep,
 				taskStep,
+				setPipelineStep,
 				aggregateStep,
+				inParallelStep,
 				doStep,
 				tryStep
 		};
+		
+
 		YBeanUnionType step = f.yBeanUnion("Step", stepTypes);
-		addProp(aggregateStep, "aggregate", f.yseq(step));
+		addProp(aggregateStep, "aggregate", f.yseq(step)).isDeprecated("Deprecated in favor of `in_parallel`");
+		YBeanType inParallelStepOptions = f.ybean("InParallelStepOptions");
+		addProp(inParallelStepOptions, "steps", f.yseq(step));
+		addProp(inParallelStepOptions, "limit", t_pos_integer);
+		addProp(inParallelStepOptions, "fail_fast", t_boolean);
+		addProp(inParallelStep, "in_parallel", f.yunion(null, 
+				f.yseq(step),
+				inParallelStepOptions
+		));
 		addProp(doStep, "do", f.yseq(step));
 		addProp(tryStep, "try", step);
 
@@ -383,11 +413,18 @@ public class PipelineYmlSchema implements YamlSchema {
 		}
 		models.setStepType(step);
 
+		YBeanType t_retention_config = f.ybean("RetentionConfig");
+		addProp(t_retention_config, "days", t_pos_integer);
+		addProp(t_retention_config, "builds", t_pos_integer);
+		addProp(t_retention_config, "minimum_succeeded_builds", t_pos_integer);
+
 		AbstractType job = f.ybean("Job");
 		addProp(job, "name", jobNameDef).isPrimary(true);
+		addProp(job, "old_name", t_ne_string);
 		addProp(job, "plan", f.yseq(step)).isRequired(true);
 		addProp(job, "serial", t_boolean);
-		addProp(job, "build_logs_to_retain", t_pos_integer);
+		addProp(job, "build_logs_to_retain", t_pos_integer).isDeprecated("Deprecated in favor of `build_log_retention`");
+		addProp(job, "build_log_retention", t_retention_config);
 		addProp(job, "serial_groups", t_strings);
 		addProp(job, "max_in_flight", t_pos_integer);
 		addProp(job, "public", t_boolean);
@@ -396,6 +433,7 @@ public class PipelineYmlSchema implements YamlSchema {
 		addProp(job, "ensure",  step);
 		addProp(job, "on_success",  step);
 		addProp(job, "on_failure",  step);
+		addProp(job, "on_error",  step);
 		addProp(job, "on_abort", step);
 
 		AbstractType resourceType = f.ybean("ResourceType");
@@ -403,6 +441,12 @@ public class PipelineYmlSchema implements YamlSchema {
 		addProp(resourceType, "type", t_resource_type_name).isRequired(true);
 		addProp(resourceType, "source", resourceSource);
 		addProp(resourceType, "privileged", t_boolean);
+		addProp(resourceType, "params", f.contextAware("GetParams", (dc) ->
+			resourceTypes.getInParamsType( getParentPropertyValue("type", models, dc))
+		));
+		addProp(resourceType, "check_every", t_duration);
+		addProp(resourceType, "tags", t_strings);
+		addProp(resourceType, "unique_version_history", t_boolean);
 
 		YType t_group_name_def= f.yatomic("Group Name")
 				.parseWith(ValueParsers.NE_STRING);
@@ -412,16 +456,33 @@ public class PipelineYmlSchema implements YamlSchema {
 		addProp(group, "resources", f.yseq(t_resource_name));
 		addProp(group, "jobs", f.yseq(t_job_name));
 
-		addProp(TOPLEVEL_TYPE, "resources", f.yseq(t_resource));
-		addProp(TOPLEVEL_TYPE, "jobs", f.yseq(job));
-		addProp(TOPLEVEL_TYPE, "resource_types", f.yseq(resourceType));
-		addProp(TOPLEVEL_TYPE, "groups", f.yseq(group).require(models::jobAssignmentIsComplete));
+		YSeqType t_resources = f.yseq(t_resource);
+		YSeqType t_jobs = f.yseq(job);
+		YSeqType t_resourceTypes = f.yseq(resourceType);
+		AbstractType t_groups = f.yseq(group).require(models::jobAssignmentIsComplete);
+		addProp(TOPLEVEL_TYPE, "resources", t_resources);
+		addProp(TOPLEVEL_TYPE, "jobs", t_jobs);
+		addProp(TOPLEVEL_TYPE, "resource_types", t_resourceTypes);
+		addProp(TOPLEVEL_TYPE, "groups", t_groups);
 
 		definitionTypes = ImmutableList.of(
 				jobNameDef,
 				resourceTypeNameDef,
 				t_resource_name_def,
 				t_group_name_def
+		);
+		hierarchicDefinitions = ImmutableList.of(
+				new HierarchicalDefType(t_resources, null, SymbolKind.File, "Resources"),
+				new HierarchicalDefType(t_resource, YamlPath.fromSimpleProperty("name"), SymbolKind.File, "Resource"),
+
+				new HierarchicalDefType(t_jobs, null, SymbolKind.Method, "Jobs"),
+				new HierarchicalDefType(job, YamlPath.fromSimpleProperty("name"), SymbolKind.Method, "Job"),
+
+				new HierarchicalDefType(t_resourceTypes, null, SymbolKind.Interface, "Resource Types"),
+				new HierarchicalDefType(resourceType, YamlPath.fromSimpleProperty("name"), SymbolKind.Interface, "Resource Type"),
+
+				new HierarchicalDefType(t_groups, null, SymbolKind.Package, "Groups"),
+				new HierarchicalDefType(group, YamlPath.fromSimpleProperty("name"), SymbolKind.Package, "Groups")
 		);
 
 		initializeDefaultResourceTypes();
@@ -515,6 +576,8 @@ public class PipelineYmlSchema implements YamlSchema {
 			addProp(put, "cache_tag", t_ne_string);
 			addProp(put, "dockerfile", t_ne_string);
 			addProp(put, "import_file", t_ne_string);
+			addProp(put, "labels", t_string_params);
+			addProp(put, "labels_file", t_ne_string);
 			addProp(put, "load", t_ne_string);
 			addProp(put, "load_base", t_ne_string);
 			addProp(put, "load_bases", t_strings);
@@ -523,17 +586,49 @@ public class PipelineYmlSchema implements YamlSchema {
 			addProp(put, "load_tag", t_ne_string);
 			addProp(put, "pull_repository", t_ne_string).isDeprecated(true);
 			addProp(put, "pull_tag", t_ne_string).isDeprecated(true);
-			addProp(put, "tag", t_ne_string);
+			addProp(put, "tag", t_ne_string).isDeprecated(true);
+			addProp(put, "tag_file", t_ne_string);
+
 			addProp(put, "tag_as_latest", t_boolean);
 			addProp(put, "tag_prefix", t_ne_string);
 			addProp(put, "target_name", t_ne_string);
 
 			resourceTypes.def("docker-image", source, get, put);
 		}
+		//registry_image
+		{
+			AbstractType source = f.ybean("RegistryImageSource");
+			addProp(source, "repository", t_ne_string).isPrimary(true);
+			addProp(source, "tag", t_ne_string);
+			addProp(source, "username", t_ne_string);
+			addProp(source, "password", t_ne_string);
+			addProp(source, "debug", t_boolean);
+			{
+				AbstractType contentTrust = f.ybean("RegistryImageContentTrust");
+				addProp(contentTrust, "server", t_ne_string);
+				addProp(contentTrust, "repository_key_id", t_ne_string).isRequired(true);
+				addProp(contentTrust, "repository_key", t_ne_string).isRequired(true);
+				addProp(contentTrust, "repository_passphrase", t_ne_string).isRequired(true);
+				addProp(contentTrust, "tls_key", t_ne_string);
+				addProp(contentTrust, "tls_cert", t_ne_string);
+				
+				addProp(source, "content_trust", contentTrust);
+			}
+			
+			AbstractType get = f.ybean("RegistryImageGetParams");
+			addProp(get, "format", f.yenum("RegistryImageFormat", "rootfs", "oci"));
+			addProp(get, "skip_download", t_boolean);
+			
+			AbstractType put = f.ybean("RegistryImagePutParams");
+			addProp(put, "image", t_ne_string).isPrimary(true);
+			addProp(put, "additional_tags", t_ne_string);
+
+			resourceTypes.def("registry-image", source, get, put);
+		}
 		//s3
 		{
 			YType t_canned_acl = f.yenum("S3CannedAcl",
-					//See http://docs.aws.amazon.com/AmazonS3/latest/dev/acl-overview.html#canned-acl
+					//See https://docs.aws.amazon.com/AmazonS3/latest/dev/acl-overview.html#canned-acl
 					"private", "public-read", "public-read-write", "aws-exec-read",
 					"authenticated-read", "bucket-owner-read", "bucket-owner-full-control",
 					"log-delivery-write"
@@ -557,6 +652,14 @@ public class PipelineYmlSchema implements YamlSchema {
 			addProp(source, "regexp", t_ne_string);
 			addProp(source, "versioned_file", t_ne_string);
 			source.requireOneOf("regexp", "versioned_file");
+			addProp(source, "initial_path", t_ne_string);
+			addProp(source, "initial_version", t_ne_string);
+			source.require(Constraints.mutuallyExclusive("initial_path", "initial_version"));
+			source.require(Constraints.implies("initial_version", "versioned_file"));
+			source.require(Constraints.implies("initial_path", "regexp"));
+			addProp(source, "initial_content_text", t_ne_string);
+			addProp(source, "initial_content_binary", t_ne_string);
+			source.require(Constraints.mutuallyExclusive("initial_content_text", "initial_content_binary"));
 
 			AbstractType get = f.ybean("S3GetParams");
 			addProp(get, "unpack", t_boolean);
@@ -685,11 +788,22 @@ public class PipelineYmlSchema implements YamlSchema {
 
 			AbstractType source = f.ybean("CloudFoundrySource");
 			addProp(source, "api", t_cf_api_url).isRequired(true);
-			addProp(source, "username", t_ne_string).isRequired(true);
-			addProp(source, "password", t_ne_string).isRequired(true);
+			addProp(source, "username", t_ne_string);
+			addProp(source, "password", t_ne_string);
+			addProp(source, "client_id", t_ne_string);
+			addProp(source, "client_secret", t_ne_string);
 			addProp(source, "organization", t_ne_string).isRequired(true);
 			addProp(source, "space", t_ne_string).isRequired(true);
-			addProp(source, "skip_cert_check", t_ne_string);
+			addProp(source, "skip_cert_check", t_boolean);
+			addProp(source, "verbose", t_boolean);
+			
+			source.require(Constraints.together("username", "password"));
+			source.require(Constraints.together("client_id", "client_secret"));
+			source.require(Constraints.requireAtLeastOneOf("username", "password", "client_id", "client_secret"));
+			source.require(Constraints.mutuallyExclusive(
+					ImmutableList.of("username", "password"), 
+					ImmutableList.of("client_id", "client_secret")
+			));
 
 			AbstractType get = f.ybean("CloudFoundryGetParams");
 			//get params deliberately left empty
@@ -699,6 +813,13 @@ public class PipelineYmlSchema implements YamlSchema {
 			addProp(put, "path", t_ne_string);
 			addProp(put, "current_app_name", t_ne_string);
 			addProp(put, "environment_variables", t_string_params);
+			addProp(put, "vars", t_params);
+			addProp(put, "vars_files", t_strings);
+			addProp(put, "docker_username", t_ne_string);
+			addProp(put, "docker_password", t_ne_string);
+			addProp(put, "show_app_log", t_boolean);
+			addProp(put, "no_start", t_boolean);
+			put.require(Constraints.mutuallyExclusive("no_start", "current_app_name"));
 
 			resourceTypes.def("cf", source, get, put);
 		}
@@ -803,4 +924,9 @@ public class PipelineYmlSchema implements YamlSchema {
 	public List<YType> getDefinitionTypes() {
 		return definitionTypes;
 	}
+
+	public List<HierarchicalDefType> getHierarchicalDefinitionTypes() {
+		return hierarchicDefinitions;
+	}
+
 }

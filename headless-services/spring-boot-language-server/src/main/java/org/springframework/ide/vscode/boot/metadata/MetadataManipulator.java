@@ -1,9 +1,9 @@
 /*******************************************************************************
- * Copyright (c) 2015 Pivotal, Inc.
+ * Copyright (c) 2015, 2019 Pivotal, Inc.
  * All rights reserved. This program and the accompanying materials
  * are made available under the terms of the Eclipse Public License v1.0
  * which accompanies this distribution, and is available at
- * http://www.eclipse.org/legal/epl-v10.html
+ * https://www.eclipse.org/legal/epl-v10.html
  *
  * Contributors:
  *     Pivotal, Inc. - initial API and implementation
@@ -26,8 +26,9 @@ import org.springframework.ide.eclipse.org.json.JSONObject;
  * @author Alex Boyko
  */
 public class MetadataManipulator {
-	
+
 	private abstract class Content {
+		@Override
 		public abstract String toString();
 		public abstract void addProperty(JSONObject jsonObject) throws Exception;
 	}
@@ -43,6 +44,7 @@ public class MetadataManipulator {
 			this.object = o;
 		}
 
+		@Override
 		public String toString() {
 			return object.toString(indentFactor);
 		}
@@ -149,7 +151,7 @@ public class MetadataManipulator {
 	private ContentStore contentStore;
 	private Content fContent;
 	private int indentFactor = 2;
-	
+
 	public MetadataManipulator(ContentStore contentStore) {
 		this.contentStore = contentStore;
 	}
@@ -159,14 +161,14 @@ public class MetadataManipulator {
 
 			@Override
 			public String getContents() throws Exception {
-				return new String(Files.readAllBytes(Paths.get(file.toURI())), ENCODING);
+				return new String(Files.readAllBytes(file.toPath()), ENCODING);
 			}
 
 			@Override
 			public void setContents(String content) throws Exception {
-				Files.write(Paths.get(file.toURI()), content.getBytes(ENCODING));
+				Files.write(file.toPath(), content.getBytes(ENCODING));
 			}
-			
+
 		});
 	}
 
@@ -225,6 +227,10 @@ public class MetadataManipulator {
 	 */
 	public boolean isReliable() throws Exception {
 		return getContent() instanceof ParsedContent;
+	}
+
+	public String getTextContent() throws Exception {
+		return getContent().toString();
 	}
 
 }

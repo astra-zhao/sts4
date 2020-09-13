@@ -3,7 +3,7 @@
  * All rights reserved. This program and the accompanying materials
  * are made available under the terms of the Eclipse Public License v1.0
  * which accompanies this distribution, and is available at
- * http://www.eclipse.org/legal/epl-v10.html
+ * https://www.eclipse.org/legal/epl-v10.html
  *
  * Contributors:
  *     Pivotal, Inc. - initial API and implementation
@@ -29,7 +29,7 @@ import org.springframework.ide.vscode.commons.util.Log;
 
 public class PropertiesLoader {
 
-	private static final String MAIN_SPRING_CONFIGURATION_METADATA_JSON = "META-INF/spring-configuration-metadata.json";
+	public static final String MAIN_SPRING_CONFIGURATION_METADATA_JSON = "META-INF/spring-configuration-metadata.json";
 
 	public static final String ADDITIONAL_SPRING_CONFIGURATION_METADATA_JSON = "META-INF/additional-spring-configuration-metadata.json";
 

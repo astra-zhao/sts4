@@ -1,9 +1,9 @@
 /*******************************************************************************
- * Copyright (c) 2016-2018 Pivotal, Inc.
+ * Copyright (c) 2016, 2019 Pivotal, Inc.
  * All rights reserved. This program and the accompanying materials
  * are made available under the terms of the Eclipse Public License v1.0
  * which accompanies this distribution, and is available at
- * http://www.eclipse.org/legal/epl-v10.html
+ * https://www.eclipse.org/legal/epl-v10.html
  *
  * Contributors:
  *     Pivotal, Inc. - initial API and implementation
@@ -14,7 +14,6 @@ package org.springframework.ide.vscode.commons.languageserver.completion;
 import java.util.Optional;
 
 import org.eclipse.lsp4j.CompletionItemKind;
-import org.eclipse.lsp4j.InsertTextFormat;
 import org.springframework.ide.vscode.commons.util.Renderable;
 
 /**
@@ -38,6 +37,23 @@ public interface ICompletionProposal {
 	 */
 	default ICompletionProposal deemphasize(double howmuch) { return this; }
 
-	default InsertTextFormat getInsertTextFormat() { return InsertTextFormat.Snippet; }
-
+	default boolean isDeprecated() { return false; }
+	
+	default TransformedCompletion dropLabelPrefix(int _numberOfDroppedChars) {
+		String orgLabel = getLabel();
+		int numberOfDroppedChars = Math.min(orgLabel.length(), _numberOfDroppedChars);
+		String prefix = getLabel().substring(0, numberOfDroppedChars);
+		return new TransformedCompletion(this) {
+			@Override
+			protected String tranformLabel(String originalLabel) {
+				return originalLabel.substring(numberOfDroppedChars);
+			}
+			
+			@Override
+			protected DocumentEdits transformEdit(DocumentEdits textEdit) {
+				textEdit.dropPrefix(prefix);
+				return textEdit;
+			}
+		};
+	}
 }

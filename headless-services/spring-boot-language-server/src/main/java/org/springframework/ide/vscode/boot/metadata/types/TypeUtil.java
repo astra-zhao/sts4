@@ -1,9 +1,9 @@
 /*******************************************************************************
- * Copyright (c) 2016, 2018 Pivotal, Inc.
+ * Copyright (c) 2016, 2019 Pivotal, Inc.
  * All rights reserved. This program and the accompanying materials
  * are made available under the terms of the Eclipse Public License v1.0
  * which accompanies this distribution, and is available at
- * http://www.eclipse.org/legal/epl-v10.html
+ * https://www.eclipse.org/legal/epl-v10.html
  *
  * Contributors:
  *     Pivotal, Inc. - initial API and implementation
@@ -35,10 +35,10 @@ import java.util.stream.Stream;
 
 import javax.inject.Provider;
 
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
 import org.springframework.boot.convert.DurationStyle;
 import org.springframework.ide.vscode.boot.configurationmetadata.Deprecation;
-import org.springframework.ide.vscode.boot.java.BootJavaLanguageServerComponents;
-import org.springframework.ide.vscode.boot.java.links.SourceLinkFactory;
 import org.springframework.ide.vscode.boot.java.links.SourceLinks;
 import org.springframework.ide.vscode.boot.metadata.ResourceHintProvider;
 import org.springframework.ide.vscode.boot.metadata.ValueProviderRegistry.ValueProviderStrategy;
@@ -49,6 +49,7 @@ import org.springframework.ide.vscode.commons.java.Flags;
 import org.springframework.ide.vscode.commons.java.IField;
 import org.springframework.ide.vscode.commons.java.IJavaElement;
 import org.springframework.ide.vscode.commons.java.IJavaProject;
+import org.springframework.ide.vscode.commons.java.IJavaType;
 import org.springframework.ide.vscode.commons.java.IMethod;
 import org.springframework.ide.vscode.commons.java.IType;
 import org.springframework.ide.vscode.commons.util.AlwaysFailingParser;
@@ -57,7 +58,6 @@ import org.springframework.ide.vscode.commons.util.Assert;
 import org.springframework.ide.vscode.commons.util.CollectionUtil;
 import org.springframework.ide.vscode.commons.util.EnumValueParser;
 import org.springframework.ide.vscode.commons.util.LazyProvider;
-import org.springframework.ide.vscode.commons.util.Log;
 import org.springframework.ide.vscode.commons.util.MimeTypes;
 import org.springframework.ide.vscode.commons.util.Renderables;
 import org.springframework.ide.vscode.commons.util.StringUtil;
@@ -76,6 +76,8 @@ import reactor.core.publisher.Flux;
  * @author Kris De Volder
  */
 public class TypeUtil {
+
+	private static final Logger log = LoggerFactory.getLogger(TypeUtil.class);
 
 	private static abstract class RadixableParser implements ValueParser {
 		protected abstract Object parse(String str, int radix);
@@ -98,6 +100,9 @@ public class TypeUtil {
 
 	private static final Object OBJECT_TYPE_NAME = Object.class.getName();
 	private static final String STRING_TYPE_NAME = String.class.getName();
+	private static final String MAP_TYPE_NAME = Map.class.getName();
+	private static final String SET_TYPE_NAME = Set.class.getName();
+	private static final String LIST_TYPE_NAME = List.class.getName();
 	private static final String INET_ADDRESS_TYPE_NAME = InetAddress.class.getName();
 	private static final String DURATION_TYPE_NAME = Duration.class.getName();
 	private static final String CLASS_TYPE_NAME = Class.class.getName();
@@ -131,16 +136,18 @@ public class TypeUtil {
 	}
 
 	private IJavaProject javaProject;
+	private SourceLinks sourceLinks;
 
-	public TypeUtil(IJavaProject jp) {
+	public TypeUtil(SourceLinks sourceLinks, IJavaProject jp) {
 		//Note javaProject is allowed to be null, but only in unit testing context
 		// (This is so some tests can be run without an explicit jp needing to be created)
 		this.javaProject = jp;
+		this.sourceLinks = sourceLinks;
 	}
 
 
-	public TypeUtil(Optional<IJavaProject> maybeProject) {
-		this(maybeProject.orElse(null));
+	public TypeUtil(SourceLinks sourceLinks, Optional<IJavaProject> maybeProject) {
+		this(sourceLinks, maybeProject.orElse(null));
 	}
 
 	private static final Map<String, String> PRIMITIVE_TYPE_NAMES = new HashMap<>();
@@ -331,16 +338,16 @@ public class TypeUtil {
 					type.getFields().filter(f -> f.isEnumConstant()).forEach(f -> {
 						String rawName = f.getElementName();
 						if (addOriginal) {
-							enums.add(StsValueHint.create(rawName, javaProject, f));
+							enums.add(StsValueHint.create(sourceLinks, rawName, javaProject, f));
 						}
 						if (addLowerCased) {
-							enums.add(StsValueHint.create(StringUtil.upperCaseToHyphens(rawName), javaProject, f));
+							enums.add(StsValueHint.create(sourceLinks, StringUtil.upperCaseToHyphens(rawName), javaProject, f));
 						}
 					});
 					return enums.build();
 				}
 			} catch (Exception e) {
-				Log.log(e);
+				log.error("", e);
 			}
 		}
 		return null;
@@ -440,7 +447,7 @@ public class TypeUtil {
 	 * use the notation <name>[<index>]=<value> in property file
 	 * for properties of this type.
 	 */
-	public static boolean isBracketable(Type type) {
+	public boolean isBracketable(Type type) {
 		//Note array types where once not considered 'Bracketable'
 		//see: STS-4031
 
@@ -449,32 +456,13 @@ public class TypeUtil {
 		//This is actually more logical too.
 		//So '[' notation in props file can be used for either list or arrays (at least in recent versions of boot).
 		//Note also 'Set' are now considered bracketable. See: https://www.pivotaltracker.com/story/show/154644992
-		return isArray(type) || isCollection(List.class, type) || isCollection(Set.class, type);
-	}
-
-	@SuppressWarnings("rawtypes")
-	private static boolean isCollection( Class<? extends Collection> klass, Type type) {
-		//Note: to be really correct we should use JDT infrastructure to resolve
-		//type in project classpath instead of using Java reflection.
-		//However, use reflection here is okay assuming types we care about
-		//are part of JRE standard libraries. Using eclipse 'type hirearchy' would
-		//also potentialy be very slow.
-		if (type!=null) {
-			String erasure = type.getErasure();
-			try {
-				Class<?> erasureClass = Class.forName(erasure);
-				return klass.isAssignableFrom(erasureClass);
-			} catch (Exception e) {
-				//type not resolveable assume its not 'array like'
-			}
-		}
-		return false;
+		return isArray(type) || isCollection(LIST_TYPE_NAME, type) || isCollection(SET_TYPE_NAME, type);
 	}
 
 	/**
 	 * Check if type can be treated / represented as a sequence node in .yml file
 	 */
-	public static boolean isSequencable(Type type) {
+	public boolean isSequencable(Type type) {
 		return isBracketable(type);
 	}
 
@@ -482,23 +470,73 @@ public class TypeUtil {
 		return type!=null && type.getErasure().endsWith("[]");
 	}
 
-	public static boolean isMap(Type type) {
-		//Note: to be really correct we should use JDT infrastructure to resolve
-		//type in project classpath instead of using Java reflection.
-		//However, use reflection here is okay assuming types we care about
-		//are part of JRE standard libraries. Using eclipse 'type hirearchy' would
-		//also potentialy be very slow.
+	public boolean isMap(Type type) {
 		if (type!=null) {
 			String erasure = type.getErasure();
+			if (MAP_TYPE_NAME.equals(erasure)) {
+				//quick / easy case. No looking for types and hierarchies required.
+				return true;
+			}
 			try {
-				Class<?> erasureClass = Class.forName(erasure);
-				return Map.class.isAssignableFrom(erasureClass);
+				IType erasureType = findType(erasure);
+				return isAssignableFrom(MAP_TYPE_NAME, erasureType);
 			} catch (Exception e) {
 				//type not resolveable
 			}
 		}
 		return false;
 	}
+
+	private boolean isCollection(String collectionTypeName, Type type) {
+		if (type!=null) {
+			String erasure = type.getErasure();
+			if (collectionTypeName.equals(erasure)) {
+				//quick / easy case. No looking for types and hierarchies required.
+				return true;
+			}
+			try {
+				IType erasureType = findType(erasure);
+				return isAssignableFrom(collectionTypeName, erasureType);
+			} catch (Exception e) {
+				//type not resolveable 
+			}
+		}
+		return false;
+	}
+
+
+	private boolean isAssignableFrom(String superTypeName, IType erasureType) {
+		Set<String> seen = new HashSet<>();
+		return searchSuperTypes(seen, erasureType, superTypeName);
+	}
+
+
+	private boolean searchSuperTypes(Set<String> seen, IType searchIn, String fqTargetType) {
+		if (searchIn!=null) {
+			String fqName = searchIn.getFullyQualifiedName();
+			if (fqName.equals(fqTargetType)) {
+				return true;
+			}
+			if (seen.add(fqName)) {
+				String[] itfs = searchIn.getSuperInterfaceNames();
+				if (itfs!=null) {
+					for (String itfName : itfs) {
+						IType itf = findType(itfName);
+						if (searchSuperTypes(seen, itf, fqTargetType)) {
+							return true;
+						}
+					}
+				}
+				String klassName = searchIn.getSuperclassName();
+				IType klass = findType(klassName);
+				if (searchSuperTypes(seen, klass, fqTargetType)) {
+					return true;
+				}
+			}
+		}
+		return false;
+	}
+
 
 	/**
 	 * Get domain type for a map or list generic type.
@@ -566,25 +604,64 @@ public class TypeUtil {
 
 	public boolean isEnum(Type type) {
 		try {
-			IType eclipseType = findType(type.getErasure());
-			if (eclipseType!=null) {
-				return eclipseType.isEnum();
+			if (!isArray(type)) {
+				IType eclipseType = findType(type.getErasure());
+				if (eclipseType!=null) {
+					return eclipseType.isEnum();
+				}
 			}
 		} catch (Exception e) {
-			Log.log(e);
+			log.error("", e);
 		}
 		return false;
+	}
+	
+	public IType getSuperType(IType type) {
+		if (type!=null) {
+			return findType(type.getSuperclassName());
+		}
+		return null;
 	}
 
 	private IType findType(String typeName) {
 		try {
 			if (javaProject!=null && typeName!=null) {
-				return javaProject.findType(typeName);
+				/*
+				 * Java project expects inner type separator to be '$' while properties index
+				 * has '.' as the separator. Replace '.' with '$' to find inner type
+				 */
+				String fqName = switchInnerTypeSeparator(typeName);
+				return javaProject.getIndex().findType(fqName);
 			}
 		} catch (Exception e) {
-			Log.log(e);
+			log.error("", e);
 		}
 		return null;
+	}
+
+	private static String switchInnerTypeSeparator(String name) {
+		if (name.indexOf('$') < 0) {
+			boolean foundDeclaringType = false;
+			String[] tokens = name.split("\\.");
+			if (tokens.length > 0) {
+				StringBuilder result = new StringBuilder();
+				result.append(tokens[0]);
+				for (int i = 1; i < tokens.length; i++) {
+					if (!foundDeclaringType) {
+						result.append('.');
+						result.append(tokens[i]);
+						if (!tokens[i].isEmpty() && Character.isUpperCase(tokens[i].charAt(0))) {
+							foundDeclaringType = true;
+						}
+					} else {
+						result.append('$');
+						result.append(tokens[i]);
+					}
+				}
+				return result.toString();
+			}
+		}
+		return name;
 	}
 
 	private IType findType(Type beanType) {
@@ -593,6 +670,7 @@ public class TypeUtil {
 
 	private static final Map<String, ValueProviderStrategy> VALUE_HINTERS = new HashMap<>();
 	private static final Object JL_OBJECT = Object.class.getName();
+	private static final String CONSTRUCTOR_BINDING = "org.springframework.boot.context.properties.ConstructorBinding";
 
 	static {
 		valueHints("java.nio.charset.Charset", new LazyProvider<String[]>() {
@@ -620,6 +698,10 @@ public class TypeUtil {
 			}
 		});
 		valueHints("org.springframework.core.io.Resource", new ResourceHintProvider());
+	}
+
+	public SourceLinks getSourceLinks() {
+		return sourceLinks;
 	}
 
 	/**
@@ -662,31 +744,58 @@ public class TypeUtil {
 
 			//TODO: handle type parameters.
 			if (typeFromIndex != null) {
-				SourceLinks sourceLinks = SourceLinkFactory.createSourceLinks((BootJavaLanguageServerComponents)null);
 				IJavaProject project = getJavaProject();
 				ArrayList<TypedProperty> properties = new ArrayList<>();
-				getGetterMethods(typeFromIndex).forEach(m -> {
-					Deprecation deprecation = DeprecationUtil.extract(m);
-					Type propType = null;
-					try {
-						propType = Type.fromJavaType(m.getReturnType());
-					} catch (Exception e) {
-						Log.log(e);
+				Optional<IMethod> constructorBinding = findConstructorBinding(typeFromIndex);
+				if (constructorBinding.isPresent()) {
+					IMethod c = constructorBinding.get();
+					List<IJavaType> types = c.parameters().collect(Collectors.toList());
+					List<String> params = c.getParameterNames();
+					int len = Math.min(params.size(), types.size());
+					for (int i = 0; i < len; i++) {
+						Deprecation deprecation = null;
+						properties.add(new TypedProperty(
+								StringUtil.camelCaseToHyphens(params.get(i)), 
+								Type.fromJavaType(types.get(i)), 
+								deprecation
+						));
 					}
-					if (beanMode.includesHyphenated()) {
-						properties.add(new TypedProperty(getterOrSetterNameToProperty(m.getElementName()), propType,
-								Renderables.lazy(() -> PropertyDocUtils.documentJavaElement(sourceLinks, project, m)), deprecation));
-					}
-					if (beanMode.includesCamelCase()) {
-						properties.add(new TypedProperty(getterOrSetterNameToCamelName(m.getElementName()), propType,
-								Renderables.lazy(() -> PropertyDocUtils.documentJavaElement(sourceLinks, project, m)), deprecation));
-					}
-				});
+					return properties;
+				} else {
+					getGetterMethods(typeFromIndex).forEach(m -> {
+						Deprecation deprecation = DeprecationUtil.extract(m);
+						Type propType = null;
+						try {
+							propType = Type.fromJavaType(m.getReturnType());
+						} catch (Exception e) {
+							log.error("", e);
+						}
+						if (beanMode.includesHyphenated()) {
+							properties.add(new TypedProperty(getterOrSetterNameToProperty(m.getElementName()), propType,
+									Renderables.lazy(() -> PropertyDocUtils.documentJavaElement(sourceLinks, project, m)), deprecation));
+						}
+						if (beanMode.includesCamelCase()) {
+							properties.add(new TypedProperty(getterOrSetterNameToCamelName(m.getElementName()), propType,
+									Renderables.lazy(() -> PropertyDocUtils.documentJavaElement(sourceLinks, project, m)), deprecation));
+						}
+					});
+				}
 				return properties;
 			}
 		}
 		return null;
 	}
+
+	private Optional<IMethod> findConstructorBinding(IType type) {
+		return type.getMethods()
+		.filter(m -> m.isConstructor())
+		.filter(m -> m.getAnnotations()
+				.anyMatch(annotation -> 
+					CONSTRUCTOR_BINDING.equals(annotation.getElementName()))
+		)
+		.findFirst();
+	}
+
 
 	/**
 	 * Registers a strategy for providing value hints with a given typeName.
@@ -782,7 +891,7 @@ public class TypeUtil {
 		} catch (Exception e) {
 			//Couldn't determine if it was public or not... let's assume it was NOT
 			// (will result in potentially more CA completions)
-			Log.log(e);
+			log.error("", e);
 			return false;
 		}
 	}
@@ -794,7 +903,7 @@ public class TypeUtil {
 		} catch (Exception e) {
 			//Couldn't determine if it was public or not... let's assume it WAS
 			// (will result in potentially more CA completions)
-			Log.log(e);
+			log.error("", e);
 			return true;
 		}
 	}
@@ -852,7 +961,7 @@ public class TypeUtil {
 			IType type = findType(beanType);
 			return type.getMethods().filter(m -> setterName.equals(m.getElementName())).findFirst().orElse(null);
 		} catch (Exception e) {
-			Log.log(e);
+			log.error("", e);
 		}
 		return null;
 	}
@@ -923,9 +1032,9 @@ public class TypeUtil {
 	 * List<List<List<String>>> -> 2
 	 * Map<*,List<String>> -> 2
 	 */
-	public static int getDimensionality(Type type) {
+	public int getDimensionality(Type type) {
 		int dim = 0;
-		while (isSequencable(type) || isMap(type)) {
+		while (isSequencable(type) || this.isMap(type)) {
 			dim++;
 			type = getDomainType(type);
 		}

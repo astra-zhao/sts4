@@ -1,15 +1,16 @@
 /*******************************************************************************
- * Copyright (c) 2018 Pivotal, Inc.
+ * Copyright (c) 2018, 2019 Pivotal, Inc.
  * All rights reserved. This program and the accompanying materials
  * are made available under the terms of the Eclipse Public License v1.0
  * which accompanies this distribution, and is available at
- * http://www.eclipse.org/legal/epl-v10.html
+ * https://www.eclipse.org/legal/epl-v10.html
  *
  * Contributors:
  *     Pivotal, Inc. - initial API and implementation
  *******************************************************************************/
 package org.springframework.tooling.ls.eclipse.commons;
 
+import java.util.Collections;
 import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
@@ -36,6 +37,7 @@ import org.eclipse.lsp4j.Command;
 import org.eclipse.swt.events.MouseEvent;
 import org.eclipse.ui.IWorkbenchPage;
 import org.eclipse.ui.PlatformUI;
+import org.springframework.ide.vscode.commons.protocol.HighlightParams;
 import org.springframework.tooling.ls.eclipse.commons.preferences.PreferenceConstants;
 
 import com.google.gson.JsonPrimitive;
@@ -72,21 +74,32 @@ public class HighlightsCodeLensProvider extends AbstractCodeMiningProvider {
 		IPreferenceStore store = LanguageServerCommonsActivator.getInstance().getPreferenceStore();
 		if (store.getBoolean(PreferenceConstants.HIGHLIGHT_CODELENS_PREFS)) {
 			IDocument document = viewer.getDocument();
-			List<LSPDocumentInfo> docInfos = LanguageServiceAccessor.getLSPDocumentInfosFor(document, (x) -> true);
-			if (!docInfos.isEmpty()) {
-				LSPDocumentInfo info = docInfos.get(0);
-				HighlightParams highlights = STS4LanguageClientImpl.currentHighlights.get(info.getFileUri().toString());
-				if (highlights != null) {
-					return CompletableFuture.completedFuture(highlights.getCodeLenses().stream()
-							.filter(codeLens -> codeLens.getCommand() != null).map(codeLens -> {
-								try {
-									return new HighlightCodeMining(codeLens, document, this, action(codeLens.getCommand()));
-								} catch (BadLocationException e) {
-									LanguageServerCommonsActivator.logError(e, "Failed to create Eclipse client CodeLens");
-									return null;
-								}
-							}).filter(Objects::nonNull).collect(Collectors.toList()));
-				}
+			if (document != null) {
+				return CompletableFuture.supplyAsync(() -> {
+					List<LSPDocumentInfo> docInfos = LanguageServiceAccessor.getLSPDocumentInfosFor(document, (x) -> true);
+					if (!docInfos.isEmpty()) {
+						LSPDocumentInfo info = docInfos.get(0);
+						HighlightParams highlights = STS4LanguageClientImpl.currentHighlights.get(info.getFileUri().toString());
+						if (highlights != null) {
+							return highlights.getCodeLenses().stream()
+									.filter(codeLens -> codeLens.getCommand() != null)
+									.map(codeLens -> {
+										try {
+											return new HighlightCodeMining(codeLens, document, this, action(codeLens.getCommand()));
+										} catch (BadLocationException e) {
+											LanguageServerCommonsActivator.logError(e, "Failed to create Eclipse client CodeLens");
+											return null;
+										}
+									})
+									.filter(Objects::nonNull)
+									.collect(Collectors.toList());
+						}
+					}
+					return Collections.emptyList();
+				});
+			}
+			else {
+				return null;
 			}
 		}
 		return null;

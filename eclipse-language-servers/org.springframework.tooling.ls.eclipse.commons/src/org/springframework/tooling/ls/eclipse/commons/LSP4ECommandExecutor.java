@@ -3,7 +3,7 @@
  * All rights reserved. This program and the accompanying materials
  * are made available under the terms of the Eclipse Public License v1.0
  * which accompanies this distribution, and is available at
- * http://www.eclipse.org/legal/epl-v10.html
+ * https://www.eclipse.org/legal/epl-v10.html
  *
  * Contributors:
  *     Pivotal, Inc. - initial API and implementation
@@ -28,8 +28,8 @@ public class LSP4ECommandExecutor implements ClientCommandExecutor {
 	@Override
 	public Object executeClientCommand(String id, Object... params) throws Exception {
 		List<LanguageServer> commandHandlers = LanguageServiceAccessor.getActiveLanguageServers(handlesCommand(id));
-		if (commandHandlers!=null) {
-			if (commandHandlers.size()==1) {
+		if (commandHandlers != null) {
+			if (commandHandlers.size() == 1) {
 				LanguageServer handler = commandHandlers.get(0);
 				return handler
 						.getWorkspaceService()
@@ -45,7 +45,7 @@ public class LSP4ECommandExecutor implements ClientCommandExecutor {
 	private Predicate<ServerCapabilities> handlesCommand(String id) {
 		return (serverCaps) -> {
 			ExecuteCommandOptions executeCommandProvider = serverCaps.getExecuteCommandProvider();
-			if (executeCommandProvider!=null) {
+			if (executeCommandProvider != null) {
 				return executeCommandProvider.getCommands().contains(id);
 			}
 			return false;

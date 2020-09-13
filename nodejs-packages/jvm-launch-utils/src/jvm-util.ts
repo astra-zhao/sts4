@@ -41,6 +41,8 @@ export interface JVM {
      * using spring-boot-maven-plugin ZIP layout.
      */
     jarLaunch(jar: string, vmargs?: string[], execFileOptions?: ChildProcess.ExecFileOptions) : ChildProcess.ChildProcess
+
+    mainClassLaunch(mainClass: string, classpath: string[], jvmArgs: string[], execFileOptions?: ChildProcess.ExecFileOptions): ChildProcess.ChildProcess
 }
 
 /**
@@ -53,15 +55,19 @@ export interface JVM {
  * toolsjar and to check whether the JVM is a JDK.
  */
 export function findJvm(javaHome?: string) : Promise<JVM | null> {
-    let javaExe = findJavaExe(javaHome);
-    if (javaExe) {
-        return getJavaInfo(javaExe).then(javaProps => new JVMImpl(
-            javaProps.get("java.home"), 
-            javaExe, 
-            getMajorVersion(javaProps)
-        ));
+    try {
+        let javaExe = findJavaExe(javaHome);
+        if (javaExe) {
+            return getJavaInfo(javaExe).then(javaProps => new JVMImpl(
+                javaProps.get("java.home"), 
+                javaExe, 
+                getMajorVersion(javaProps)
+            ));
+        }
+        return Promise.resolve(null);
+    } catch (e) {
+        return Promise.reject(e);
     }
-    return Promise.resolve(null);
 }
 
 /**
@@ -70,6 +76,9 @@ export function findJvm(javaHome?: string) : Promise<JVM | null> {
  */
 export function findJdk(javaHome?: string) : Promise<JVM | null> {
     return findJvm(javaHome).then(jvm => {
+        if(!jvm) {
+            return null;
+        }
         if (!jvm.isJdk()) {
             console.log("found jvm is not a JDK");
 
@@ -214,6 +223,27 @@ class JVMImpl implements JVM {
             args.push(...vmargs);
         }
         args.push("-jar", jar);
+        return ChildProcess.execFile(this.getJavaExecutable(), args, execFileOptions);
+    }
+
+    mainClassLaunch(mainClass: string, classpath: string[], jvmArgs: string[], execFileOptions?: ChildProcess.ExecFileOptions): ChildProcess.ChildProcess {
+        const args: string[] = [];
+
+        // Classpath
+        args.push('-cp');
+        let classpathStr = classpath.join(Path.delimiter);
+        const toolsJar = this.getToolsJar();
+        if (toolsJar) {
+            classpathStr += Path.delimiter + toolsJar;
+        }
+        args.push(classpathStr);
+
+        // JVM Arguments
+        args.push(...jvmArgs);
+
+        // Main class
+        args.push(mainClass);
+
         return ChildProcess.execFile(this.getJavaExecutable(), args, execFileOptions);
     }
 }

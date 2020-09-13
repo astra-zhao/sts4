@@ -1,15 +1,16 @@
 /*******************************************************************************
- * Copyright (c) 2018 Pivotal, Inc.
+ * Copyright (c) 2018, 2019 Pivotal, Inc.
  * All rights reserved. This program and the accompanying materials
  * are made available under the terms of the Eclipse Public License v1.0
  * which accompanies this distribution, and is available at
- * http://www.eclipse.org/legal/epl-v10.html
+ * https://www.eclipse.org/legal/epl-v10.html
  *
  * Contributors:
  *     Pivotal, Inc. - initial API and implementation
  *******************************************************************************/
 package org.springframework.ide.vscode.boot.properties.hover;
 
+import java.util.ArrayList;
 import java.util.Collection;
 import java.util.List;
 import java.util.Objects;
@@ -25,8 +26,10 @@ import org.springframework.ide.vscode.boot.metadata.PropertyInfo.PropertySource;
 import org.springframework.ide.vscode.boot.metadata.types.Type;
 import org.springframework.ide.vscode.boot.metadata.types.TypeParser;
 import org.springframework.ide.vscode.boot.metadata.types.TypeUtil;
+import org.springframework.ide.vscode.commons.java.IClassType;
 import org.springframework.ide.vscode.commons.java.IField;
 import org.springframework.ide.vscode.commons.java.IJavaProject;
+import org.springframework.ide.vscode.commons.java.IJavaType;
 import org.springframework.ide.vscode.commons.java.IMember;
 import org.springframework.ide.vscode.commons.java.IMethod;
 import org.springframework.ide.vscode.commons.java.IType;
@@ -52,40 +55,100 @@ public class PropertiesDefinitionCalculator {
 		return null;
 	}
 
-	public static Collection<IMember> getPropertyJavaElements(PropertyFinder propertyFinder, IJavaProject project, String propertyKey) {
+	public static Collection<IMember> getPropertyJavaElements(TypeUtil typeUtil, PropertyFinder propertyFinder, IJavaProject project, String propertyKey) {
 		PropertyInfo best = propertyFinder.findBestHoverMatch(propertyKey);
 		if (best != null) {
-			return getPropertyJavaElement(project, best);
+			return getPropertyJavaElements(typeUtil, project, best);
 		}
 		return ImmutableList.of();
 	}
 
-	public static Collection<IMember> getPropertyJavaElement(IJavaProject project, PropertyInfo property) {
+	public static Collection<IMember> getPropertyJavaElements(TypeUtil typeUtil, IJavaProject project, PropertyInfo property) {
 		List<PropertySource> sources = property.getSources();
-		ImmutableList.Builder<IMember> elements = ImmutableList.builder();
+		ImmutableList.Builder<IMember> elements = ImmutableList.builder(); 
 		if (sources != null) {
 			for (PropertySource source : sources) {
-				String typeName = source.getSourceType();
-				if (typeName!=null) {
-					IType type = project.findType(typeName);
-					IMethod method = null;
-					if (type!=null) {
-						String methodSig = source.getSourceMethod();
-						if (methodSig!=null) {
-							method = getMethod(type, methodSig);
-						} else {
-							method = getPropertyMethod(type, property.getName());
-						}
-					}
-					if (method!=null) {
-						elements.add(method);
-					} else if (type!=null) {
-						elements.add(type);
-					}
+				IMember e = getPropertyJavaElement(typeUtil, project, property, source);
+				if (e!=null) {
+					elements.add(e);
 				}
 			}
 		}
 		return elements.build();
+	}
+
+	public static Collection<IMember> getPropertySourceJavaElements(TypeUtil typeUtil, IJavaProject project, Collection<PropertySource> sources) {
+		ImmutableList.Builder<IMember> elements = ImmutableList.builder(); 
+		if (sources != null) {
+			for (PropertySource source : sources) {
+				IMember e = getPropertySourceJavaElement(typeUtil, project, source);
+				if (e!=null) {
+					elements.add(e);
+				}
+			}
+		}
+		return elements.build();
+	}
+
+	private static IMember getPropertySourceJavaElement(TypeUtil typeUtil, IJavaProject project, PropertySource source) {
+		List<IMember> elements = new ArrayList<>();
+		// collect elements in increasing order of accuracy, so that we can return the last
+		// (most accurate) element at the end of this method.
+		String typeName = source.getSourceType();
+		if (typeName!=null) {
+			IType type = project.getIndex().findType(typeName);
+			if (type!=null) {
+				elements.add(type);
+				String methodSig = source.getSourceMethod();
+				if (methodSig!=null) {
+					// the property source is a method, so actually we look for accessor in the return type.
+					IMethod method = getMethod(type, methodSig);
+					if (method!=null) {
+						elements.add(method);
+					}
+				} 
+			}
+		}
+		if (!elements.isEmpty()) {
+			return elements.get(elements.size()-1);
+		}
+		return null;
+	}
+
+	private static IMember getPropertyJavaElement(TypeUtil typeUtil, IJavaProject project, PropertyInfo property, PropertySource source) {
+		List<IMember> elements = new ArrayList<>();
+			// collect elements in increasing order of accuracy, so that we can return the last
+			// (most accurate) element at the end of this method.
+		String typeName = source.getSourceType();
+		if (typeName!=null) {
+			IType type = project.getIndex().findType(typeName);
+			if (type!=null) {
+				elements.add(type);
+				String methodSig = source.getSourceMethod();
+				if (methodSig!=null) {
+					// the property source is a method, so actually we look for accessor in the return type.
+					IMethod method = getMethod(type, methodSig);
+					if (method!=null) {
+						elements.add(method);
+						IJavaType retType = method.getReturnType();
+						if (retType instanceof IClassType) {
+							type = project.getIndex().findType(((IClassType) retType).getFQName());
+							if (type!=null) {
+								elements.add(type);
+							}
+						}
+					}
+				} 
+				IMethod method = getPropertyMethod(typeUtil, type, property.getName());
+				if (method!=null) {
+					elements.add(method);
+				}
+			}
+		}
+		if (!elements.isEmpty()) {
+			return elements.get(elements.size()-1);
+		}
+		return null;
 	}
 
 	private static IMethod getMethod(IType type, String methodSig) {
@@ -146,13 +209,16 @@ public class PropertiesDefinitionCalculator {
 		}
 	}
 
-	public static IMethod getPropertyMethod(IType type, String propName) {
+	public static IMethod getPropertyMethod(TypeUtil typeUtil, IType type, String propName) {
 		String[] accessors = { "set", "get", "is" };
-		for (String a : accessors) {
-			IMethod propertyMethod = getAccessor(type, a, propName);
-			if (propertyMethod != null) {
-				return propertyMethod;
+		while (type!=null && !"java.lang.Object".equals(type.getFullyQualifiedName())) {
+			for (String a : accessors) {
+				IMethod propertyMethod = getAccessor(type, a, propName);
+				if (propertyMethod != null) {
+					return propertyMethod;
+				}
 			}
+			type = typeUtil.getSuperType(type);
 		}
 		return null;
 	}
@@ -198,7 +264,7 @@ public class PropertiesDefinitionCalculator {
 	}
 
 	private static List<Location> getEnumValueDefinitionLocation(JavaElementLocationProvider javaElementLocationProvider, IJavaProject project, Type type, String value) {
-		IType javaType = project.findType(type.getErasure());
+		IType javaType = project.getIndex().findType(type.getErasure());
 		if (javaType != null) {
 			IField field = getEnumField(javaType, value);
 			if (field != null) {
@@ -212,7 +278,7 @@ public class PropertiesDefinitionCalculator {
 	}
 
 	private static List<Location> getClassValueDefinitionLocation(JavaElementLocationProvider javaElementLocationProvider, IJavaProject project, String value) {
-		IType javaType = project.findType(value);
+		IType javaType = project.getIndex().findType(value);
 		if (javaType != null) {
 			Location location = javaElementLocationProvider.findLocation(project, javaType);
 			if (location != null) {

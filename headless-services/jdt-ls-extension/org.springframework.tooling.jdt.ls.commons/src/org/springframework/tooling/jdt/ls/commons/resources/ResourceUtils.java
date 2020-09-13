@@ -1,26 +1,27 @@
 /*******************************************************************************
- * Copyright (c) 2018 Pivotal, Inc.
+ * Copyright (c) 2018, 2019 Pivotal, Inc.
  * All rights reserved. This program and the accompanying materials
  * are made available under the terms of the Eclipse Public License v1.0
  * which accompanies this distribution, and is available at
- * http://www.eclipse.org/legal/epl-v10.html
+ * https://www.eclipse.org/legal/epl-v10.html
  *
  * Contributors:
  *     Pivotal, Inc. - initial API and implementation
  *******************************************************************************/
 package org.springframework.tooling.jdt.ls.commons.resources;
 
-import static org.springframework.tooling.jdt.ls.commons.Logger.*;
-
 import java.io.File;
 import java.net.URI;
+import java.util.ArrayList;
 import java.util.Arrays;
+import java.util.Collection;
 import java.util.List;
 import java.util.Optional;
 
 import org.eclipse.core.resources.IContainer;
 import org.eclipse.core.resources.IProject;
 import org.eclipse.core.resources.ResourcesPlugin;
+import org.eclipse.core.runtime.CoreException;
 import org.eclipse.jdt.core.IJavaProject;
 import org.eclipse.jdt.core.JavaCore;
 
@@ -57,6 +58,24 @@ public final class ResourceUtils {
 		}
 
 		throw new Exception("Resolve classpath: unable to resolve a Java project from : " + resourceUri);
+	}
+	
+	public static Collection<IJavaProject> allJavaProjects() {
+		IProject[] projects = ResourcesPlugin.getWorkspace().getRoot().getProjects();
+		ArrayList<IJavaProject> javaProjects = new ArrayList<>(projects.length);
+		for (IProject project : projects) {
+			try {
+				if (project.isAccessible() && project.hasNature(JavaCore.NATURE_ID)) {
+					IJavaProject javaProject = JavaCore.create(project);
+					if (javaProject != null) {
+						javaProjects.add(javaProject);
+					}
+				}
+			} catch (CoreException e) {
+				// ignore
+			}
+		}
+		return javaProjects;
 	}
 
 	/**

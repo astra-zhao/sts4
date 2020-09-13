@@ -1,9 +1,9 @@
 /*******************************************************************************
- * Copyright (c) 2017 Pivotal, Inc.
+ * Copyright (c) 2017, 2020 Pivotal, Inc.
  * All rights reserved. This program and the accompanying materials
  * are made available under the terms of the Eclipse Public License v1.0
  * which accompanies this distribution, and is available at
- * http://www.eclipse.org/legal/epl-v10.html
+ * https://www.eclipse.org/legal/epl-v10.html
  *
  * Contributors:
  *     Pivotal, Inc. - initial API and implementation
@@ -14,12 +14,15 @@ import static org.junit.Assert.assertEquals;
 import static org.junit.Assert.fail;
 
 import java.io.InputStream;
+import java.util.Collection;
+import java.util.Collections;
 import java.util.List;
 import java.util.Optional;
 
 import org.apache.commons.io.IOUtils;
 import org.eclipse.lsp4j.CompletionItem;
-import org.eclipse.xtend.lib.annotations.Accessors;
+import org.eclipse.lsp4j.TextDocumentIdentifier;
+import org.gradle.internal.impldep.com.google.common.collect.ImmutableList;
 import org.junit.Before;
 import org.junit.Test;
 import org.junit.runner.RunWith;
@@ -32,13 +35,12 @@ import org.springframework.ide.vscode.boot.bootiful.AdHocPropertyHarnessTestConf
 import org.springframework.ide.vscode.boot.bootiful.BootLanguageServerTest;
 import org.springframework.ide.vscode.boot.editor.harness.AdHocPropertyHarness;
 import org.springframework.ide.vscode.boot.editor.harness.PropertyIndexHarness;
-import org.springframework.ide.vscode.boot.java.handlers.RunningAppProvider;
 import org.springframework.ide.vscode.boot.java.links.SourceLinkFactory;
 import org.springframework.ide.vscode.boot.java.links.SourceLinks;
 import org.springframework.ide.vscode.boot.java.utils.CompilationUnitCache;
+import org.springframework.ide.vscode.boot.java.utils.SymbolCache;
+import org.springframework.ide.vscode.boot.java.utils.SymbolCacheVoid;
 import org.springframework.ide.vscode.boot.java.value.ValueCompletionProcessor;
-import org.springframework.ide.vscode.boot.metadata.AdHocSpringPropertyIndexProvider;
-import org.springframework.ide.vscode.boot.metadata.SpringPropertyIndexProvider;
 import org.springframework.ide.vscode.boot.metadata.ValueProviderRegistry;
 import org.springframework.ide.vscode.commons.java.IJavaProject;
 import org.springframework.ide.vscode.commons.languageserver.java.JavaProjectFinder;
@@ -57,6 +59,7 @@ import org.springframework.test.context.junit4.SpringRunner;
  */
 @RunWith(SpringRunner.class)
 @BootLanguageServerTest
+@Import({AdHocPropertyHarnessTestConf.class, ValueCompletionTest.TestConf.class})
 public class ValueCompletionTest {
 
 	@Autowired private BootLanguageServerHarness harness;
@@ -69,7 +72,6 @@ public class ValueCompletionTest {
 	@Autowired private AdHocPropertyHarness adHocProperties;
 
 	@Configuration
-	@Import(AdHocPropertyHarnessTestConf.class)
 	static class TestConf {
 
 		//Somewhat strange test setup, test provides a specific test project.
@@ -86,7 +88,19 @@ public class ValueCompletionTest {
 		}
 
 		@Bean JavaProjectFinder projectFinder(MavenJavaProject testProject) {
-			return (doc) -> Optional.of(testProject);
+			return new JavaProjectFinder() {
+
+				@Override
+				public Optional<IJavaProject> find(TextDocumentIdentifier doc) {
+					return Optional.ofNullable(testProject);
+				}
+
+				@Override
+				public Collection<? extends IJavaProject> all() {
+					// TODO Auto-generated method stub
+					return testProject == null ? Collections.emptyList() : ImmutableList.of(testProject);
+				}
+			};
 		}
 
 		@Bean BootLanguageServerHarness harness(SimpleLanguageServer server, BootLanguageServerParams serverParams, PropertyIndexHarness indexHarness, JavaProjectFinder projectFinder) throws Exception {
@@ -94,15 +108,17 @@ public class ValueCompletionTest {
 		}
 
 		@Bean BootLanguageServerParams serverParams(SimpleLanguageServer server, JavaProjectFinder projectFinder, ValueProviderRegistry valueProviders, PropertyIndexHarness indexHarness) {
-			BootLanguageServerParams testDefaults = BootLanguageServerParams.createTestDefault(server, valueProviders);
+			BootLanguageServerParams testDefaults = BootLanguageServerHarness.createTestDefault(server, valueProviders);
 			return new BootLanguageServerParams(
 					projectFinder,
 					ProjectObserver.NULL,
 					indexHarness.getIndexProvider(),
-					testDefaults.typeUtilProvider,
-					RunningAppProvider.NULL,
-					null
+					testDefaults.typeUtilProvider
 			);
+		}
+
+		@Bean SymbolCache symbolCache() {
+			return new SymbolCacheVoid();
 		}
 
 		@Bean SourceLinks sourceLinks(SimpleTextDocumentService documents, CompilationUnitCache cuCache) {

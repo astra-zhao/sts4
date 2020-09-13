@@ -1,9 +1,9 @@
 /*******************************************************************************
- * Copyright (c) 2017, 2018 Pivotal, Inc.
+ * Copyright (c) 2017, 2019 Pivotal, Inc.
  * All rights reserved. This program and the accompanying materials
  * are made available under the terms of the Eclipse Public License v1.0
  * which accompanies this distribution, and is available at
- * http://www.eclipse.org/legal/epl-v10.html
+ * https://www.eclipse.org/legal/epl-v10.html
  *
  * Contributors:
  *     Pivotal, Inc. - initial API and implementation
@@ -15,6 +15,7 @@ import static org.junit.Assert.assertTrue;
 import java.nio.file.Path;
 import java.nio.file.Paths;
 
+import org.junit.After;
 import org.junit.Before;
 import org.junit.Test;
 import org.junit.runner.RunWith;
@@ -22,16 +23,18 @@ import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.context.annotation.Import;
 import org.springframework.ide.vscode.boot.bootiful.BootLanguageServerTest;
 import org.springframework.ide.vscode.boot.bootiful.HoverTestConf;
-import org.springframework.ide.vscode.commons.boot.app.cli.livebean.LiveBean;
-import org.springframework.ide.vscode.commons.boot.app.cli.livebean.LiveBeansModel;
+import org.springframework.ide.vscode.boot.java.livehover.v2.LiveBean;
+import org.springframework.ide.vscode.boot.java.livehover.v2.LiveBeansModel;
+import org.springframework.ide.vscode.boot.java.livehover.v2.SpringProcessLiveData;
+import org.springframework.ide.vscode.boot.java.livehover.v2.SpringProcessLiveDataProvider;
 import org.springframework.ide.vscode.commons.maven.java.MavenJavaProject;
 import org.springframework.ide.vscode.commons.util.text.LanguageId;
 import org.springframework.ide.vscode.languageserver.testharness.Editor;
 import org.springframework.ide.vscode.project.harness.BootLanguageServerHarness;
-import org.springframework.ide.vscode.project.harness.MockRunningAppProvider;
 import org.springframework.ide.vscode.project.harness.ProjectsHarness;
 import org.springframework.ide.vscode.project.harness.ProjectsHarness.CustomizableProjectContent;
 import org.springframework.ide.vscode.project.harness.ProjectsHarness.ProjectCustomizer;
+import org.springframework.ide.vscode.project.harness.SpringProcessLiveDataBuilder;
 import org.springframework.test.context.junit4.SpringRunner;
 
 @RunWith(SpringRunner.class)
@@ -73,18 +76,20 @@ public class BeanInjectedIntoHoverProviderTest {
 
 	private ProjectsHarness projects = ProjectsHarness.INSTANCE;
 
-	@Autowired
-	private BootLanguageServerHarness harness;
-
-	@Autowired
-	private MockRunningAppProvider mockAppProvider;
+	@Autowired private BootLanguageServerHarness harness;
+	@Autowired private SpringProcessLiveDataProvider liveDataProvider;
 
 	@Before
 	public void setup() throws Exception {
 		MavenJavaProject jp =  projects.mavenProject("empty-boot-15-web-app", FOO_INTERFACE);
-		assertTrue(jp.findType("hello.Foo").exists());
+		assertTrue(jp.getIndex().findType("hello.Foo").exists());
 		harness.useProject(jp);
 		harness.intialize(null);
+	}
+	
+	@After
+	public void tearDown() throws Exception {
+		liveDataProvider.remove("processkey");
 	}
 
 	@Test
@@ -96,12 +101,13 @@ public class BeanInjectedIntoHoverProviderTest {
 						.build()
 				)
 				.build();
-		mockAppProvider.builder()
-			.isSpringBootApp(true)
-			.processId("111")
+		
+		SpringProcessLiveData liveData = new SpringProcessLiveDataBuilder()
+			.processID("111")
 			.processName("the-app")
 			.beans(beans)
 			.build();
+		liveDataProvider.add("processkey", liveData);
 
 		Editor editor = harness.newEditor(LanguageId.JAVA,
 				"package hello;\n" +
@@ -140,12 +146,13 @@ public class BeanInjectedIntoHoverProviderTest {
 						.build()
 				)
 				.build();
-		mockAppProvider.builder()
-			.isSpringBootApp(true)
-			.processId("111")
+
+		SpringProcessLiveData liveData = new SpringProcessLiveDataBuilder()
+			.processID("111")
 			.processName("the-app")
 			.beans(beans)
 			.build();
+		liveDataProvider.add("processkey", liveData);
 
 		String[] beanAnnotations = {
 				"@Bean(value=\"beanId\")",
@@ -204,12 +211,13 @@ public class BeanInjectedIntoHoverProviderTest {
 						.build()
 				)
 				.build();
-		mockAppProvider.builder()
-			.isSpringBootApp(true)
-			.processId("111")
+
+		SpringProcessLiveData liveData = new SpringProcessLiveDataBuilder()
+			.processID("111")
 			.processName("the-app")
 			.beans(beans)
 			.build();
+		liveDataProvider.add("processkey", liveData);
 
 		Editor editor = harness.newEditor(LanguageId.JAVA,
 				"package hello;\n" +
@@ -239,6 +247,81 @@ public class BeanInjectedIntoHoverProviderTest {
 	}
 
 	@Test
+	public void beanWithOneInjectionAndWiring() throws Exception {
+		LiveBeansModel beans = LiveBeansModel.builder()
+				.add(LiveBean.builder()
+						.id("fooImplementation")
+						.type("hello.FooImplementation")
+						.dependencies("message")
+						.build()
+				)
+				.add(LiveBean.builder()
+						.id("myController")
+						.type("hello.MyController")
+						.dependencies("fooImplementation")
+						.build()
+				)
+				.add(LiveBean.builder()
+						.id("message")
+						.type("java.lang.String")
+						.build()
+				)
+				.add(LiveBean.builder()
+						.id("irrelevantBean")
+						.type("com.example.IrrelevantBean")
+						.dependencies("myController")
+						.build()
+				)
+				.build();
+		
+		SpringProcessLiveData liveData = new SpringProcessLiveDataBuilder()
+			.processID("111")
+			.processName("the-app")
+			.beans(beans)
+			.build();
+		liveDataProvider.add("processkey", liveData);
+
+		Editor editor = harness.newEditor(LanguageId.JAVA,
+				"package hello;\n" +
+				"\n" +
+				"import org.springframework.context.annotation.Bean;\n" +
+				"import org.springframework.context.annotation.Configuration;\n" +
+				"import org.springframework.context.annotation.Profile;\n" +
+				"\n" +
+				"@Configuration\n" +
+				"public class LocalConfig {\n" +
+				"	\n" +
+				"	@Bean(\"fooImplementation\")\n" +
+				"	Foo someFoo(String msg) {\n" +
+				"		return new FooImplementation();\n" +
+				"	}\n" +
+				"}"
+		);
+		// !!! 2 highlights over @Bean. 1 for injected beans CodeLens, 1 for wired beans CodeLens
+		editor.assertHighlights("@Bean", "@Bean", "msg");
+		editor.assertTrimmedHover("@Bean",
+				"**&#8594; `MyController`**\n" +
+				"- Bean: `myController`  \n" +
+				"  Type: `hello.MyController`\n" +
+				"  \n" +
+				"**&#8592; `String`**\n" +
+				"- Bean: `message`  \n" +
+				"  Type: `java.lang.String`\n" +
+				"  \n" +
+				"Bean id: `fooImplementation`  \n" +
+				"Process [PID=111, name=`the-app`]"
+		);
+		editor.assertTrimmedHover("msg",
+				"**&#8592; `String`**\n" +
+				"- Bean: `message`  \n" +
+				"  Type: `java.lang.String`\n" +
+				"  \n" +
+				"Bean id: `fooImplementation`  \n" +
+				"Process [PID=111, name=`the-app`]"
+		);
+	}
+
+	@Test
 	public void beanFromInnerClassWithOneInjection() throws Exception {
 		LiveBeansModel beans = LiveBeansModel.builder()
 				.add(LiveBean.builder()
@@ -259,12 +342,13 @@ public class BeanInjectedIntoHoverProviderTest {
 						.build()
 				)
 				.build();
-		mockAppProvider.builder()
-			.isSpringBootApp(true)
-			.processId("111")
+
+		SpringProcessLiveData liveData = new SpringProcessLiveDataBuilder()
+			.processID("111")
 			.processName("the-app")
 			.beans(beans)
 			.build();
+		liveDataProvider.add("processkey", liveData);
 
 		Editor editor = harness.newEditor(LanguageId.JAVA,
 				"package hello;\n" +
@@ -314,12 +398,13 @@ public class BeanInjectedIntoHoverProviderTest {
 						.build()
 				)
 				.build();
-		mockAppProvider.builder()
-			.isSpringBootApp(true)
-			.processId("111")
+		
+		SpringProcessLiveData liveData = new SpringProcessLiveDataBuilder()
+			.processID("111")
 			.processName("the-app")
 			.beans(beans)
 			.build();
+		liveDataProvider.add("processkey", liveData);
 
 		Editor editor = harness.newEditor(LanguageId.JAVA,
 				"package hello;\n" +
@@ -366,12 +451,13 @@ public class BeanInjectedIntoHoverProviderTest {
 						.build()
 				)
 				.build();
-		mockAppProvider.builder()
-			.isSpringBootApp(true)
-			.processId("111")
+
+		SpringProcessLiveData liveData = new SpringProcessLiveDataBuilder()
+			.processID("111")
 			.processName("the-app")
 			.beans(beans)
 			.build();
+		liveDataProvider.add("processkey", liveData);
 
 		Editor editor = harness.newEditor(LanguageId.JAVA,
 				"package hello;\n" +
@@ -422,12 +508,13 @@ public class BeanInjectedIntoHoverProviderTest {
 						.build()
 				)
 				.build();
-		mockAppProvider.builder()
-			.isSpringBootApp(true)
-			.processId("111")
+		
+		SpringProcessLiveData liveData = new SpringProcessLiveDataBuilder()
+			.processID("111")
 			.processName("the-app")
 			.beans(beans)
 			.build();
+		liveDataProvider.add(("processkey"), liveData);
 
 		Editor editor = harness.newEditor(LanguageId.JAVA,
 				"package hello;\n" +
@@ -467,12 +554,13 @@ public class BeanInjectedIntoHoverProviderTest {
 						.build()
 				)
 				.build();
-		mockAppProvider.builder()
-			.isSpringBootApp(true)
-			.processId("111")
+
+		SpringProcessLiveData liveData = new SpringProcessLiveDataBuilder()
+			.processID("111")
 			.processName("unrelated-app")
 			.beans(beans)
 			.build();
+		liveDataProvider.add("processkey", liveData);
 
 		Editor editor = harness.newEditor(LanguageId.JAVA,
 				"package hello;\n" +
@@ -531,12 +619,13 @@ public class BeanInjectedIntoHoverProviderTest {
 						.build()
 				)
 				.build();
-		mockAppProvider.builder()
-			.isSpringBootApp(true)
-			.processId("111")
+		
+		SpringProcessLiveData liveData = new SpringProcessLiveDataBuilder()
+			.processID("111")
 			.processName("the-app")
 			.beans(beans)
 			.build();
+		liveDataProvider.add("processkey", liveData);
 
 		Editor editor = harness.newEditor(LanguageId.JAVA,
 				"package hello;\n" +
@@ -549,12 +638,12 @@ public class BeanInjectedIntoHoverProviderTest {
 				"public class LocalConfig {\n" +
 				"	\n" +
 				"	@Bean(\"fooImplementation\")\n" +
-				"	Foo someFoo(DependencyA a) {\n" +
+				"	Foo someFoo(DependencyA depA) {\n" +
 				"		return new FooImplementation();\n" +
 				"	}\n" +
 				"}"
 		);
-		editor.assertHighlights("@Bean");
+		editor.assertHighlights("@Bean", "depA");
 		editor.assertTrimmedHover("@Bean",
 				"**&#8592; `DependencyA`**\n" +
 				"- Bean: `depA`  \n" +
@@ -563,6 +652,16 @@ public class BeanInjectedIntoHoverProviderTest {
 				"Bean id: `fooImplementation`  \n" +
 				"Process [PID=111, name=`the-app`]"
 		);
+
+		editor.assertTrimmedHover("depA",
+				"**&#8592; `DependencyA`**\n" +
+				"- Bean: `depA`  \n" +
+				"  Type: `hello.DependencyA`\n" +
+				"  \n" +
+				"Bean id: `fooImplementation`  \n" +
+				"Process [PID=111, name=`the-app`]"
+		);
+
 	}
 
 	@Test
@@ -585,12 +684,13 @@ public class BeanInjectedIntoHoverProviderTest {
 						.build()
 				)
 				.build();
-		mockAppProvider.builder()
-			.isSpringBootApp(true)
-			.processId("111")
+
+		SpringProcessLiveData liveData = new SpringProcessLiveDataBuilder()
+			.processID("111")
 			.processName("the-app")
 			.beans(beans)
 			.build();
+		liveDataProvider.add("processkey", liveData);
 
 		Editor editor = harness.newEditor(LanguageId.JAVA,
 				"package hello;\n" +
@@ -603,12 +703,12 @@ public class BeanInjectedIntoHoverProviderTest {
 				"public class LocalConfig {\n" +
 				"	\n" +
 				"	@Bean(\"fooImplementation\")\n" +
-				"	Foo someFoo(DependencyA a, DependencyB b) {\n" +
+				"	Foo someFoo(DependencyA depA, DependencyB depB) {\n" +
 				"		return new FooImplementation();\n" +
 				"	}\n" +
 				"}"
 		);
-		editor.assertHighlights("@Bean");
+		editor.assertHighlights("@Bean", "depA", "depB");
 		editor.assertTrimmedHover("@Bean",
 				"**&#8592; `DependencyA` `DependencyB`**\n" +
 				"- Bean: `depA`  \n" +
@@ -619,6 +719,25 @@ public class BeanInjectedIntoHoverProviderTest {
 				"Bean id: `fooImplementation`  \n" +
 				"Process [PID=111, name=`the-app`]"
 		);
+
+		editor.assertTrimmedHover("depA",
+				"**&#8592; `DependencyA`**\n" +
+				"- Bean: `depA`  \n" +
+				"  Type: `hello.DependencyA`\n" +
+				"  \n" +
+				"Bean id: `fooImplementation`  \n" +
+				"Process [PID=111, name=`the-app`]"
+		);
+
+		editor.assertTrimmedHover("depB",
+				"**&#8592; `DependencyB`**\n" +
+				"- Bean: `depB`  \n" +
+				"  Type: `hello.DependencyB`\n" +
+				"  \n" +
+				"Bean id: `fooImplementation`  \n" +
+				"Process [PID=111, name=`the-app`]"
+		);
+
 	}
 
 	@Test
@@ -641,12 +760,13 @@ public class BeanInjectedIntoHoverProviderTest {
 						.build()
 				)
 				.build();
-		mockAppProvider.builder()
-			.isSpringBootApp(true)
-			.processId("111")
+		
+		SpringProcessLiveData liveData = new SpringProcessLiveDataBuilder()
+			.processID("111")
 			.processName("the-app")
 			.beans(beans)
 			.build();
+		liveDataProvider.add("processkey", liveData);
 
 		Editor editor = harness.newEditor(LanguageId.JAVA,
 				"package hello;\n" +
@@ -664,7 +784,7 @@ public class BeanInjectedIntoHoverProviderTest {
 				"	}\n" +
 				"}"
 		);
-		editor.assertHighlights("@Bean");
+		editor.assertHighlights("@Bean", "deps");
 		editor.assertTrimmedHover("@Bean",
 				"**&#8592; `DependencyA` `DependencyB`**\n" +
 				"- Bean: `depA`  \n" +
@@ -675,7 +795,18 @@ public class BeanInjectedIntoHoverProviderTest {
 				"Bean id: `fooImplementation`  \n" +
 				"Process [PID=111, name=`the-app`]"
 		);
-	}
+
+		editor.assertTrimmedHover("deps",
+				"**&#8592; `DependencyA` `DependencyB`**\n" +
+				"- Bean: `depA`  \n" +
+				"  Type: `hello.DependencyA`\n" +
+				"- Bean: `depB`  \n" +
+				"  Type: `hello.DependencyB`\n" +
+				"  \n" +
+				"Bean id: `fooImplementation`  \n" +
+				"Process [PID=111, name=`the-app`]"
+		);
+}
 
 	@Test
 	public void beanWithQualifierWiring() throws Exception {
@@ -692,12 +823,13 @@ public class BeanInjectedIntoHoverProviderTest {
 						.build()
 				)
 				.build();
-		mockAppProvider.builder()
-			.isSpringBootApp(true)
-			.processId("111")
+
+		SpringProcessLiveData liveData = new SpringProcessLiveDataBuilder()
+			.processID("111")
 			.processName("the-app")
 			.beans(beans)
 			.build();
+		liveDataProvider.add("processkey", liveData);
 
 		Editor editor = harness.newEditor(LanguageId.JAVA,
 				"package hello;\n" +
@@ -715,7 +847,7 @@ public class BeanInjectedIntoHoverProviderTest {
 				"	}\n" +
 				"}"
 		);
-		editor.assertHighlights("@Bean");
+		editor.assertHighlights("@Bean", "deps");
 		editor.assertTrimmedHover("@Bean",
 				"**&#8592; `DependencyB`**\n" +
 				"- Bean: `depB`  \n" +
@@ -724,5 +856,15 @@ public class BeanInjectedIntoHoverProviderTest {
 				"Bean id: `fooImplementation`  \n" +
 				"Process [PID=111, name=`the-app`]"
 		);
+
+		editor.assertTrimmedHover("deps",
+				"**&#8592; `DependencyB`**\n" +
+				"- Bean: `depB`  \n" +
+				"  Type: `hello.DependencyB`\n" +
+				"  \n" +
+				"Bean id: `fooImplementation`  \n" +
+				"Process [PID=111, name=`the-app`]"
+		);
+
 	}
 }

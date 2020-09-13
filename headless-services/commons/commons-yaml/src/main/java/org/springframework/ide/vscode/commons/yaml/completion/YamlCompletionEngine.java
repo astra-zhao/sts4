@@ -3,7 +3,7 @@
  * All rights reserved. This program and the accompanying materials
  * are made available under the terms of the Eclipse Public License v1.0
  * which accompanies this distribution, and is available at
- * http://www.eclipse.org/legal/epl-v10.html
+ * https://www.eclipse.org/legal/epl-v10.html
  *
  * Contributors:
  *     Pivotal, Inc. - initial API and implementation
@@ -26,6 +26,7 @@ import org.springframework.ide.vscode.commons.languageserver.completion.Document
 import org.springframework.ide.vscode.commons.languageserver.completion.ICompletionEngine;
 import org.springframework.ide.vscode.commons.languageserver.completion.ICompletionProposal;
 import org.springframework.ide.vscode.commons.languageserver.completion.ScoreableProposal;
+import org.springframework.ide.vscode.commons.languageserver.completion.TransformedCompletion;
 import org.springframework.ide.vscode.commons.util.Assert;
 import org.springframework.ide.vscode.commons.util.Log;
 import org.springframework.ide.vscode.commons.util.Unicodes;
@@ -62,6 +63,7 @@ public class YamlCompletionEngine implements ICompletionEngine {
 	private final YamlAssistContextProvider contextProvider;
 	protected final YamlStructureProvider structureProvider;
 	private YamlCompletionEngineOptions options;
+
 
 	public YamlCompletionEngine(YamlStructureProvider structureProvider, YamlAssistContextProvider contextProvider, YamlCompletionEngineOptions options) {
 		this.options = options;
@@ -478,5 +480,4 @@ public class YamlCompletionEngine implements ICompletionEngine {
 			throw new IllegalStateException("Missing case");
 		}
 	}
-
 }

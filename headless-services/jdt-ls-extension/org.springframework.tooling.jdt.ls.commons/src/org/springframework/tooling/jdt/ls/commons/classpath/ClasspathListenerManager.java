@@ -1,27 +1,30 @@
 /*******************************************************************************
- * Copyright (c) 2018 Pivotal, Inc.
+ * Copyright (c) 2019, 2020 Pivotal, Inc.
  * All rights reserved. This program and the accompanying materials
  * are made available under the terms of the Eclipse Public License v1.0
  * which accompanies this distribution, and is available at
- * http://www.eclipse.org/legal/epl-v10.html
+ * https://www.eclipse.org/legal/epl-v10.html
  *
  * Contributors:
  *     Pivotal, Inc. - initial API and implementation
  *******************************************************************************/
 package org.springframework.tooling.jdt.ls.commons.classpath;
 
-import java.util.Arrays;
-import java.util.Comparator;
-import java.util.function.Supplier;
+import java.util.Queue;
+import java.util.concurrent.ConcurrentLinkedQueue;
 
-import org.eclipse.core.resources.IProject;
-import org.eclipse.core.resources.ResourcesPlugin;
-import org.eclipse.core.runtime.CoreException;
+import org.eclipse.core.resources.IFile;
+import org.eclipse.core.resources.IResourceDelta;
+import org.eclipse.core.runtime.IProgressMonitor;
+import org.eclipse.core.runtime.IStatus;
+import org.eclipse.core.runtime.Status;
+import org.eclipse.core.runtime.jobs.Job;
 import org.eclipse.jdt.core.ElementChangedEvent;
 import org.eclipse.jdt.core.IElementChangedListener;
 import org.eclipse.jdt.core.IJavaElement;
 import org.eclipse.jdt.core.IJavaElementDelta;
 import org.eclipse.jdt.core.IJavaProject;
+import org.eclipse.jdt.core.IPackageFragmentRoot;
 import org.eclipse.jdt.core.JavaCore;
 import org.springframework.tooling.jdt.ls.commons.Logger;
 
@@ -34,15 +37,33 @@ import org.springframework.tooling.jdt.ls.commons.Logger;
  */
 public class ClasspathListenerManager {
 
+	Queue<Runnable> workQueue = new ConcurrentLinkedQueue<>();
+	
+	Job worker = new Job("Processing JDT Change Events") {
+		{
+			setSystem(true);
+		}
+		
+		@Override
+		protected IStatus run(IProgressMonitor monitor) {
+			while (!workQueue.isEmpty()) {
+				workQueue.remove().run();
+			}
+			return Status.OK_STATUS;
+		}
+	};
+
 	public interface ClasspathListener {
-		public abstract void classpathChanged(IJavaProject jp);
+		void classpathChanged(IJavaProject jp);
+		default void projectBuilt(IJavaProject jp) {}; 
 	}
 
 	private class MyListener implements IElementChangedListener {
 
 		@Override
 		public void elementChanged(ElementChangedEvent event) {
-			visit(event.getDelta());
+			workQueue.add(() -> visit(event.getDelta()));
+			worker.schedule();
 		}
 
 		private void visit(IJavaElementDelta delta) {
@@ -52,13 +73,69 @@ public class ClasspathListenerManager {
 				visitChildren(delta);
 				break;
 			case IJavaElement.JAVA_PROJECT:
-				if (isCreatedOrDeleted(delta) || isClasspathChanged(delta.getFlags())) {
-					listener.classpathChanged((IJavaProject)el);
+				IJavaProject jp = (IJavaProject)el;
+				if (isCreatedOrDeleted(delta)
+						|| isClasspathChanged(delta.getFlags())
+						// Classpath unchanged but maven/gradle repo cache has JAR's removed or downloaded
+						// See individual method comments for more details
+						|| isClasspathManifestFileChanged(jp, delta)
+						|| areClasspathJarsChanged(delta)) {
+					listener.classpathChanged(jp);
 				}
 				break;
 			default:
 				break;
 			}
+		}
+
+		/**
+		 * Checks if any classpath JARs have been added/removed/content changed
+		 * For the case when classpath stays the same while some classpath JARs are missing from maven/gradle repo cache.
+		 * This handles Gradle case completely and partially handles Maven case 
+		 * @param delta
+		 * @return
+		 */
+		private boolean areClasspathJarsChanged(IJavaElementDelta delta) {
+			for (IJavaElementDelta childDelta : delta.getAffectedChildren()) {
+				if (childDelta.getElement() instanceof IPackageFragmentRoot) {
+					IPackageFragmentRoot pkgRoot = (IPackageFragmentRoot) childDelta.getElement();
+					if (pkgRoot.isArchive()) {
+						return true;
+					}
+				}
+			}
+			return false;
+		}
+
+		/**
+		 * When Maven project update is completed .classpath file content changed is one
+		 * of the resource delta's expected.
+		 * 
+		 * If maven cache JARs hav ebeen removed and then maven project update performed
+		 * the following events sent: 1. JAR files removed 2. Once classpath is ready
+		 * and downloaded .classpath file content changed comes in
+		 * 
+		 * Next update of the same project will result in the following 1. JAR files
+		 * added 2. Immidiately after .classpath file content changed
+		 * 
+		 * Looks like M2E does a "refresh" before updating which is good, but no refresh
+		 * after which is bad and hence JAR files added event come next Maven Update and
+		 * we are forced to watch for .classpath content changed.
+		 * 
+		 * @param jp
+		 * @param delta
+		 * @return
+		 */
+		private boolean isClasspathManifestFileChanged(IJavaProject jp, IJavaElementDelta delta) {
+			if (delta.getResourceDeltas() != null && (delta.getFlags() & (IJavaElementDelta.F_CONTENT | IJavaElementDelta.F_CHILDREN)) != 0) {
+				IFile classpathFile = jp.getProject().getFile(IJavaProject.CLASSPATH_FILE_NAME);
+				for (IResourceDelta resourceDelta : delta.getResourceDeltas()) {
+					if (classpathFile.equals(resourceDelta.getResource())) {
+						return true;
+					}
+				}
+			}
+			return false;
 		}
 
 		private boolean isCreatedOrDeleted(IJavaElementDelta delta) {
@@ -85,14 +162,14 @@ public class ClasspathListenerManager {
 	private ClasspathListener listener;
 	private MyListener myListener;
 	private final Logger logger;
-
+	
 	public ClasspathListenerManager(Logger logger, ClasspathListener listener) {
 		this.logger = logger;
-		logger.log("Setting up ClasspathListenerManager");
+		this.logger.log("Setting up ClasspathListenerManager");
 		this.listener = listener;
 		JavaCore.addElementChangedListener(myListener=new MyListener(), ElementChangedEvent.POST_CHANGE);
 	}
-
+	
 	public void dispose() {
 		if (myListener!=null) {
 			JavaCore.removeElementChangedListener(myListener);

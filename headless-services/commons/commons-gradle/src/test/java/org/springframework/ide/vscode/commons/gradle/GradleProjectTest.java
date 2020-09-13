@@ -1,9 +1,9 @@
 /*******************************************************************************
- * Copyright (c) 2017, 2018 Pivotal, Inc.
+ * Copyright (c) 2017, 2019 Pivotal, Inc.
  * All rights reserved. This program and the accompanying materials
  * are made available under the terms of the Eclipse Public License v1.0
  * which accompanies this distribution, and is available at
- * http://www.eclipse.org/legal/epl-v10.html
+ * https://www.eclipse.org/legal/epl-v10.html
  *
  * Contributors:
  *     Pivotal, Inc. - initial API and implementation
@@ -91,7 +91,7 @@ public class GradleProjectTest {
 	@Test
 	public void gradleClasspathResource() throws Exception {
 		GradleJavaProject project = getGradleProject("test-app-1");
-		List<String> resources = project.getClasspathResources();
+		List<String> resources = IClasspathUtil.getClasspathResources(project.getClasspath());
 		assertArrayEquals(new String[] {"test-resource-1.txt"}, resources.toArray(new String[resources.size()]));
 	}
 

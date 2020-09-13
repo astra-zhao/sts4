@@ -3,7 +3,7 @@
  * All rights reserved. This program and the accompanying materials
  * are made available under the terms of the Eclipse Public License v1.0
  * which accompanies this distribution, and is available at
- * http://www.eclipse.org/legal/epl-v10.html
+ * https://www.eclipse.org/legal/epl-v10.html
  *
  * Contributors:
  *     Pivotal, Inc. - initial API and implementation
@@ -49,8 +49,9 @@ public class BootJavaCompletionEngine implements ICompletionEngine {
 
 				if (node != null) {
 					Collection<ICompletionProposal> completions = new ArrayList<ICompletionProposal>();
-					completions.addAll(collectCompletionsForAnnotations(node, offset, document));
-					completions.addAll(snippets.getCompletions(document, offset, node, cu));
+					collectCompletionsForAnnotations(node, offset, document, completions);
+					collectCompletions(node, offset, document, completions);
+					snippets.getCompletions(document, offset, node, cu, completions);
 					return completions;
 				}
 			}
@@ -59,7 +60,7 @@ public class BootJavaCompletionEngine implements ICompletionEngine {
 		});
 	}
 
-	private Collection<ICompletionProposal> collectCompletionsForAnnotations(ASTNode node, int offset, IDocument doc) {
+	private void collectCompletionsForAnnotations(ASTNode node, int offset, IDocument doc, Collection<ICompletionProposal> completions) {
 		Annotation annotation = null;
 		ASTNode exactNode = node;
 
@@ -75,13 +76,19 @@ public class BootJavaCompletionEngine implements ICompletionEngine {
 				if (qualifiedName != null) {
 					CompletionProvider provider = this.completionProviders.get(qualifiedName);
 					if (provider != null) {
-						return provider.provideCompletions(exactNode, annotation, type, offset, doc);
+						provider.provideCompletions(exactNode, annotation, type, offset, doc, completions);
 					}
 				}
 			}
 		}
+	}
 
-		return Collections.emptyList();
+	private void collectCompletions(ASTNode node, int offset, TextDocument document, Collection<ICompletionProposal> completions) {
+		if (node != null) {
+			for (CompletionProvider completionProvider : this.completionProviders.values()) {
+				completionProvider.provideCompletions(node, offset, document, completions);
+			}
+		}
 	}
 
 }

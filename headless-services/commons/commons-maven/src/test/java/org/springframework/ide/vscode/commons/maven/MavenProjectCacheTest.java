@@ -1,9 +1,9 @@
 /*******************************************************************************
- * Copyright (c) 2017, 2018 Pivotal, Inc.
+ * Copyright (c) 2017, 2019 Pivotal, Inc.
  * All rights reserved. This program and the accompanying materials
  * are made available under the terms of the Eclipse Public License v1.0
  * which accompanies this distribution, and is available at
- * http://www.eclipse.org/legal/epl-v10.html
+ * https://www.eclipse.org/legal/epl-v10.html
  *
  * Contributors:
  * Pivotal, Inc. - initial API and implementation
@@ -49,11 +49,11 @@ import org.springframework.ide.vscode.commons.languageserver.DiagnosticService;
 import org.springframework.ide.vscode.commons.languageserver.ProgressService;
 import org.springframework.ide.vscode.commons.languageserver.Sts4LanguageServer;
 import org.springframework.ide.vscode.commons.languageserver.java.ProjectObserver.Listener;
-import org.springframework.ide.vscode.commons.languageserver.jdt.ls.Classpath.CPE;
 import org.springframework.ide.vscode.commons.languageserver.util.ShowMessageException;
 import org.springframework.ide.vscode.commons.languageserver.util.SimpleWorkspaceService;
 import org.springframework.ide.vscode.commons.maven.java.MavenJavaProject;
 import org.springframework.ide.vscode.commons.maven.java.MavenProjectCache;
+import org.springframework.ide.vscode.commons.protocol.java.Classpath.CPE;
 import org.springframework.ide.vscode.commons.util.BasicFileObserver;
 
 import com.google.common.collect.ImmutableList;
@@ -65,6 +65,8 @@ import com.google.common.collect.ImmutableList;
  *
  */
 public class MavenProjectCacheTest {
+
+	private static final int TIMEOUT_SECONDS = 60;
 
 	private Sts4LanguageServer server;
 	private BasicFileObserver fileObserver;
@@ -134,7 +136,7 @@ public class MavenProjectCacheTest {
 		assertNotNull(cachedProject);
 
 		ImmutableList<CPE> calculatedClassPath = cachedProject.getClasspath().getClasspathEntries();
-		assertEquals(50, calculatedClassPath.stream().filter(cpe -> !cpe.isSystem()).count());
+		assertEquals(51, calculatedClassPath.stream().filter(cpe -> !cpe.isSystem()).count());
 
 		fileObserver.notifyFileChanged(pomFile.toURI().toString());
 		assertNull(projectChanged[0]);
@@ -145,7 +147,7 @@ public class MavenProjectCacheTest {
 		assertNotNull(projectChanged[0]);
 		assertEquals(cachedProject, projectChanged[0]);
 		calculatedClassPath = cachedProject.getClasspath().getClasspathEntries();
-		assertEquals(51, calculatedClassPath.stream().filter(cpe -> !cpe.isSystem()).count());
+		assertEquals(52, calculatedClassPath.stream().filter(cpe -> !cpe.isSystem()).count());
 
 		fileObserver.notifyFileDeleted(pomFile.toURI().toString());
 		assertEquals(cachedProject, projectDeleted[0]);
@@ -188,10 +190,10 @@ public class MavenProjectCacheTest {
 					e.printStackTrace();
 				}
 			}
-		}).get(30, TimeUnit.SECONDS);
+		}).get(TIMEOUT_SECONDS, TimeUnit.SECONDS);
 
 		assertTrue(classpathCacheFile.exists());
-		assertEquals(50, project.getClasspath().getClasspathEntries().stream().filter(cpe -> !cpe.isSystem()).count());
+		assertEquals(51, project.getClasspath().getClasspathEntries().stream().filter(cpe -> !cpe.isSystem()).count());
 
 		progressDone.set(false);
 
@@ -200,7 +202,7 @@ public class MavenProjectCacheTest {
 
 		// Check loaded from cache file
 		project = cache.project(pomFile);
-		assertEquals(50, project.getClasspath().getClasspathEntries().stream().filter(cpe -> !cpe.isSystem()).count());
+		assertEquals(51, project.getClasspath().getClasspathEntries().stream().filter(cpe -> !cpe.isSystem()).count());
 	}
 
 	@Test
@@ -238,7 +240,7 @@ public class MavenProjectCacheTest {
 					e.printStackTrace();
 				}
 			}
-		}).get(30, TimeUnit.SECONDS);
+		}).get(TIMEOUT_SECONDS, TimeUnit.SECONDS);
 		progressDone.set(false);
 		verify(diagnosticService, never()).diagnosticEvent(any(ShowMessageException.class));
 
@@ -252,7 +254,7 @@ public class MavenProjectCacheTest {
 					e.printStackTrace();
 				}
 			}
-		}).get(30, TimeUnit.SECONDS);
+		}).get(TIMEOUT_SECONDS, TimeUnit.SECONDS);
 		progressDone.set(false);
 		verify(diagnosticService, times(1)).diagnosticEvent(any(ShowMessageException.class));
 		assertTrue(project.getClasspath().getClasspathEntries().isEmpty());

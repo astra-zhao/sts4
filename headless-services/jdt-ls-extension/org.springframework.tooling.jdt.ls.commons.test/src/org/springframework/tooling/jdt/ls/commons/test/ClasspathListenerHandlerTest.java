@@ -1,9 +1,9 @@
 /*******************************************************************************
- * Copyright (c) 2018 Pivotal, Inc.
+ * Copyright (c) 2018, 2019 Pivotal, Inc.
  * All rights reserved. This program and the accompanying materials
  * are made available under the terms of the Eclipse Public License v1.0
  * which accompanies this distribution, and is available at
- * http://www.eclipse.org/legal/epl-v10.html
+ * https://www.eclipse.org/legal/epl-v10.html
  *
  * Contributors:
  *     Pivotal, Inc. - initial API and implementation
@@ -39,14 +39,15 @@ import org.eclipse.core.runtime.Platform;
 import org.eclipse.core.runtime.Status;
 import org.eclipse.jdt.core.JavaCore;
 import org.junit.After;
+import org.junit.Assert;
 import org.junit.Ignore;
 import org.junit.Rule;
 import org.junit.Test;
 import org.junit.rules.TemporaryFolder;
+import org.springframework.ide.vscode.commons.protocol.java.Classpath;
+import org.springframework.ide.vscode.commons.protocol.java.Classpath.CPE;
 import org.springframework.tooling.jdt.ls.commons.Logger.TestLogger;
-import org.springframework.tooling.jdt.ls.commons.classpath.Classpath;
-import org.springframework.tooling.jdt.ls.commons.classpath.Classpath.CPE;
-import org.springframework.tooling.jdt.ls.commons.test.ClasspathListenerHandlerTest.MockClientCommandExecutor;
+import org.springframework.tooling.jdt.ls.commons.classpath.ClasspathUtil;
 import org.springframework.tooling.jdt.ls.commons.classpath.ClientCommandExecutor;
 import org.springframework.tooling.jdt.ls.commons.classpath.ReusableClasspathListenerHandler;
 import org.springsource.ide.eclipse.commons.frameworks.test.util.ACondition;
@@ -54,7 +55,6 @@ import org.springsource.ide.eclipse.commons.frameworks.test.util.Asserter;
 
 import com.google.common.collect.ImmutableList;
 
-import junit.framework.Assert;
 import junit.framework.AssertionFailedError;
 
 public class ClasspathListenerHandlerTest {
@@ -72,6 +72,9 @@ public class ClasspathListenerHandlerTest {
 		service.addClasspathListener(classpaths.commandId);
 		ACondition.waitFor("Project with classpath to appear", Duration.ofSeconds(50), () -> {
 			Classpath cp = classpaths.getFor(loc).classpath;
+			for (CPE cpe : cp.getEntries()) {
+				assertTrue(new File(cpe.getPath()).isAbsolute());
+			}
 			assertTrue(cp.getEntries().stream().filter(cpe -> Classpath.isSource(cpe)).count()==1); //has 1 source entry
 			assertClasspath(cp, cp.getEntries().stream().filter(cpe -> Classpath.isBinary(cpe) && cpe.isSystem()).count()>=1); //has some system libraries
 		});
@@ -87,6 +90,9 @@ public class ClasspathListenerHandlerTest {
 		File loc = project.getLocation().toFile();
 		ACondition.waitFor("Project with classpath to appear", Duration.ofSeconds(5), () -> {
 			Classpath cp = classpaths.getFor(loc).classpath;
+			for (CPE cpe : cp.getEntries()) {
+				assertTrue(new File(cpe.getPath()).isAbsolute());
+			}
 			assertTrue(cp.getEntries().stream().filter(cpe -> Classpath.isSource(cpe)).count()==1); //has 1 source entry
 			assertClasspath(cp, cp.getEntries().stream().filter(cpe -> Classpath.isBinary(cpe) && cpe.isSystem()).count()>=1); //has some system libraries
 		});
@@ -109,6 +115,9 @@ public class ClasspathListenerHandlerTest {
 			service.addClasspathListener(classpaths.commandId);
 			ACondition.waitFor("Project with classpath to appear", Duration.ofSeconds(5), () -> {
 				Classpath cp = classpaths.getFor(loc).classpath;
+				for (CPE cpe : cp.getEntries()) {
+					assertTrue(new File(cpe.getPath()).isAbsolute());
+				}
 				assertTrue(cp.getEntries().stream().filter(cpe -> Classpath.isSource(cpe)).count()==1); //has 1 source entry
 				assertClasspath(cp, cp.getEntries().stream().filter(cpe -> Classpath.isBinary(cpe) && cpe.isSystem()).count()>=1); //has some system libraries
 			});
@@ -140,6 +149,9 @@ public class ClasspathListenerHandlerTest {
 		service.addClasspathListener(classpaths.commandId);
 		ACondition.waitFor("Project with classpath to appear", Duration.ofSeconds(5), () -> {
 			Classpath cp = classpaths.getFor(loc).classpath;
+			for (CPE cpe : cp.getEntries()) {
+				assertTrue(new File(cpe.getPath()).isAbsolute());
+			}
 			assertTrue(cp.getEntries().stream().filter(cpe -> Classpath.isSource(cpe)).count()==1); //has 1 source entry
 			assertClasspath(cp, cp.getEntries().stream().filter(cpe -> Classpath.isBinary(cpe) && cpe.isSystem()).count()>=1); //has some system libraries
 		});
@@ -153,15 +165,18 @@ public class ClasspathListenerHandlerTest {
 		});
 	}
 
-	@Ignore //TODO: why is this failing in CI builds but passing locally?
 	@Test public void sourceJar() throws Exception {
 		String projectName = "maven-with-jar-dependency";
+		ClasspathUtil.enableDownloadSources();
 		IProject project = createTestProject(projectName);
 		File loc = project.getLocation().toFile();
 
 		service.addClasspathListener(classpaths.commandId);
 		ACondition.waitFor("Project with classpath to appear", Duration.ofSeconds(50), () -> {
 			Classpath cp = classpaths.getFor(loc).classpath;
+			for (CPE cpe : cp.getEntries()) {
+				assertTrue(new File(cpe.getPath()).isAbsolute());
+			}
 			assertClasspath(cp, cp.getEntries().stream().filter(cpe -> Classpath.isSource(cpe)).count()>=1); //has source entries
 			CPE dependency = cp.getEntries().stream()
 				.filter(Classpath::isBinary)

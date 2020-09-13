@@ -3,7 +3,7 @@
  * All rights reserved. This program and the accompanying materials
  * are made available under the terms of the Eclipse Public License v1.0
  * which accompanies this distribution, and is available at
- * http://www.eclipse.org/legal/epl-v10.html
+ * https://www.eclipse.org/legal/epl-v10.html
  *
  * Contributors:
  *     Pivotal, Inc. - initial API and implementation
@@ -17,6 +17,7 @@ import java.util.List;
 import org.springframework.ide.vscode.boot.configurationmetadata.ConfigurationMetadataProperty;
 import org.springframework.ide.vscode.boot.configurationmetadata.ConfigurationMetadataSource;
 import org.springframework.ide.vscode.boot.configurationmetadata.Deprecation;
+import org.springframework.ide.vscode.boot.configurationmetadata.Deprecation.Level;
 import org.springframework.ide.vscode.boot.configurationmetadata.ValueHint;
 import org.springframework.ide.vscode.boot.configurationmetadata.ValueProvider;
 import org.springframework.ide.vscode.boot.metadata.ValueProviderRegistry.ValueProviderStrategy;
@@ -62,6 +63,36 @@ public class PropertyInfo {
 		public String getSourceMethod() {
 			return sourceMethod;
 		}
+		@Override
+		public int hashCode() {
+			final int prime = 31;
+			int result = 1;
+			result = prime * result + ((sourceMethod == null) ? 0 : sourceMethod.hashCode());
+			result = prime * result + ((sourceType == null) ? 0 : sourceType.hashCode());
+			return result;
+		}
+		@Override
+		public boolean equals(Object obj) {
+			if (this == obj)
+				return true;
+			if (obj == null)
+				return false;
+			if (getClass() != obj.getClass())
+				return false;
+			PropertySource other = (PropertySource) obj;
+			if (sourceMethod == null) {
+				if (other.sourceMethod != null)
+					return false;
+			} else if (!sourceMethod.equals(other.sourceMethod))
+				return false;
+			if (sourceType == null) {
+				if (other.sourceType != null)
+					return false;
+			} else if (!sourceType.equals(other.sourceType))
+				return false;
+			return true;
+		}
+		
 	}
 
 	final private String id;
@@ -142,20 +173,12 @@ public class PropertyInfo {
 		return description;
 	}
 
-	public HintProvider getHints(TypeUtil typeUtil, boolean dimensionAware) {
+	public HintProvider getHints(TypeUtil typeUtil) {
 		Type type = TypeParser.parse(this.type);
-		if (TypeUtil.isMap(type)) {
-			return HintProviders.forMap(keyHints(typeUtil), valueHints(typeUtil), TypeUtil.getDomainType(type), dimensionAware);
-		} else if (TypeUtil.isSequencable(type)) {
-			if (dimensionAware) {
-				if (TypeUtil.isSequencable(type)) {
-					return HintProviders.forDomainAt(valueHints(typeUtil), TypeUtil.getDimensionality(type));
-				} else {
-					return HintProviders.forHere(valueHints(typeUtil));
-				}
-			} else {
-				return HintProviders.forAllValueContexts(valueHints(typeUtil));
-			}
+		if (typeUtil.isMap(type)) {
+			return HintProviders.forMap(keyHints(typeUtil), valueHints(typeUtil), TypeUtil.getDomainType(type));
+		} else if (typeUtil.isSequencable(type)) {
+			return HintProviders.forAllValueContexts(valueHints(typeUtil));
 		} else {
 			return HintProviders.forHere(valueHints(typeUtil));
 		}
@@ -180,11 +203,13 @@ public class PropertyInfo {
 	public String toString() {
 		return "PropertyInfo("+getId()+")";
 	}
-	public void addSource(ConfigurationMetadataSource source) {
+	public PropertySource addSource(ConfigurationMetadataSource source) {
 		if (sources==null) {
 			sources = new ArrayList<PropertySource>();
 		}
-		sources.add(new PropertySource(source));
+		PropertySource s = new PropertySource(source);
+		sources.add(s);
+		return s;
 	}
 
 	public PropertyInfo withId(String alias) {
@@ -214,6 +239,11 @@ public class PropertyInfo {
 	public String getDeprecationReplacement() {
 		return deprecation == null ? null : deprecation.getReplacement();
 	}
+
+	public Level getDeprecationLevel() {
+		return deprecation == null ? null : deprecation.getLevel();
+	}
+
 
 	public void addValueHints(List<ValueHint> hints) {
 		Builder<ValueHint> builder = ImmutableList.builder();

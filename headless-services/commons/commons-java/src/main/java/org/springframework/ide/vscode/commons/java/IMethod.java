@@ -3,7 +3,7 @@
  * All rights reserved. This program and the accompanying materials
  * are made available under the terms of the Eclipse Public License v1.0
  * which accompanies this distribution, and is available at
- * http://www.eclipse.org/legal/epl-v10.html
+ * https://www.eclipse.org/legal/epl-v10.html
  *
  * Contributors:
  *     IBM Corporation - initial API and implementation
@@ -12,7 +12,7 @@
  *******************************************************************************/
 package org.springframework.ide.vscode.commons.java;
 
-import java.io.File;
+import java.util.List;
 import java.util.stream.Stream;
 
 public interface IMethod extends IMember {
@@ -68,8 +68,10 @@ public interface IMethod extends IMember {
 	boolean isConstructor();
 
 	@Override
-	default File classpathContainer() {
+	default IJavaModuleData classpathContainer() {
 		return getDeclaringType().classpathContainer();
 	}
+
+	List<String> getParameterNames();
 
 }

@@ -1,9 +1,9 @@
 /*******************************************************************************
- * Copyright (c) 2018 Pivotal, Inc.
+ * Copyright (c) 2019 Pivotal, Inc.
  * All rights reserved. This program and the accompanying materials
  * are made available under the terms of the Eclipse Public License v1.0
  * which accompanies this distribution, and is available at
- * http://www.eclipse.org/legal/epl-v10.html
+ * https://www.eclipse.org/legal/epl-v10.html
  *
  * Contributors:
  *     Pivotal, Inc. - initial API and implementation
@@ -13,6 +13,7 @@ package org.springframework.ide.vscode.boot.java.links;
 import java.net.URI;
 
 import org.eclipse.lsp4j.Location;
+import org.eclipse.lsp4j.Range;
 import org.springframework.ide.vscode.commons.java.IJavaProject;
 import org.springframework.ide.vscode.commons.java.IMember;
 
@@ -21,7 +22,14 @@ public class EclipseJavaElementLocationProvider implements JavaElementLocationPr
 	@Override
 	public Location findLocation(IJavaProject project, IMember member) {
 		URI uri = EclipseSourceLinks.eclipseIntroUri(project, member);
-		return uri == null ? null : new Location(uri.toString(), null);
+		if (uri == null) {
+			return null;
+		} else {
+			Location location = new Location();
+			location.setUri(uri.toString());
+			location.setRange(new Range());
+			return location;
+		}
 	}
 
 }

@@ -1,9 +1,9 @@
 /*******************************************************************************
- * Copyright (c) 2017, 2018 Pivotal, Inc.
+ * Copyright (c) 2017, 2019 Pivotal, Inc.
  * All rights reserved. This program and the accompanying materials
  * are made available under the terms of the Eclipse Public License v1.0
  * which accompanies this distribution, and is available at
- * http://www.eclipse.org/legal/epl-v10.html
+ * https://www.eclipse.org/legal/epl-v10.html
  *
  * Contributors:
  *     Pivotal, Inc. - initial API and implementation
@@ -17,21 +17,31 @@ import java.util.List;
 import java.util.Optional;
 import java.util.stream.Collectors;
 
+import org.eclipse.jdt.core.dom.MethodDeclaration;
+import org.eclipse.jdt.core.dom.SingleVariableDeclaration;
 import org.eclipse.lsp4j.CodeLens;
 import org.eclipse.lsp4j.Command;
 import org.eclipse.lsp4j.Range;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
+import org.springframework.ide.vscode.boot.java.autowired.AutowiredHoverProvider;
 import org.springframework.ide.vscode.boot.java.links.SourceLinks;
+import org.springframework.ide.vscode.boot.java.livehover.v2.LiveBean;
+import org.springframework.ide.vscode.boot.java.livehover.v2.LiveBeansModel;
+import org.springframework.ide.vscode.boot.java.livehover.v2.SpringProcessLiveData;
+import org.springframework.ide.vscode.boot.java.utils.ASTUtils;
 import org.springframework.ide.vscode.boot.java.utils.SpringResource;
-import org.springframework.ide.vscode.commons.boot.app.cli.SpringBootApp;
-import org.springframework.ide.vscode.commons.boot.app.cli.livebean.LiveBean;
-import org.springframework.ide.vscode.commons.boot.app.cli.livebean.LiveBeansModel;
 import org.springframework.ide.vscode.commons.java.IJavaProject;
+import org.springframework.ide.vscode.commons.util.BadLocationException;
 import org.springframework.ide.vscode.commons.util.Renderables;
 import org.springframework.ide.vscode.commons.util.StringUtil;
+import org.springframework.ide.vscode.commons.util.text.TextDocument;
 
 import com.google.common.collect.ImmutableList;
 
 public class LiveHoverUtils {
+
+	private static final Logger log = LoggerFactory.getLogger(LiveHoverUtils.class);
 
 	public static final LiveBean CANT_MATCH_PROPER_BEAN = LiveBean.builder().id("UNKNOWN").build();
 
@@ -127,15 +137,15 @@ public class LiveHoverUtils {
 		return new SpringResource(sourceLinks, resource, project).toMarkdown();
 	}
 
-	public static boolean hasRelevantBeans(SpringBootApp app, LiveBean definedBean) {
-		return findRelevantBeans(app, definedBean).stream().findAny().isPresent();
+	public static boolean hasRelevantBeans(SpringProcessLiveData liveData, LiveBean definedBean) {
+		return findRelevantBeans(liveData, definedBean).stream().findAny().isPresent();
 	}
 
-	public static List<LiveBean> findRelevantBeans(SpringBootApp app, LiveBean definedBean) {
-		LiveBeansModel beansModel = app.getBeans();
+	public static List<LiveBean> findRelevantBeans(SpringProcessLiveData liveData, LiveBean definedBean) {
+		LiveBeansModel beansModel = liveData.getBeans();
 		if (beansModel != null) {
 			List<LiveBean> relevantBeans = beansModel.getBeansOfName(definedBean.getId());
-			String type = definedBean.getType();
+			String type = definedBean.getType(true);
 			if (type != null) {
 				// TODO: check if we should check for bean type rather than id that we build ourselves based on type
 //				if (relevantBeans.isEmpty()) {
@@ -149,20 +159,20 @@ public class LiveHoverUtils {
 		return Collections.emptyList();
 	}
 
-	public static List<LiveBean> findAllDependencyBeans(SpringBootApp app, List<LiveBean> relevantBeans) {
-		LiveBeansModel beans = app.getBeans();
+	public static List<LiveBean> findAllDependencyBeans(SpringProcessLiveData liveData, List<LiveBean> relevantBeans) {
+		LiveBeansModel beans = liveData.getBeans();
 		return relevantBeans.stream()
 				.flatMap(b -> Arrays.stream(b.getDependencies())).distinct()
 				.flatMap(d -> beans.getBeansOfName(d).stream()).collect(Collectors.toList());
 
 	}
 
-	public static String niceAppName(SpringBootApp app) {
+	public static String niceAppName(SpringProcessLiveData liveData) {
 		try {
-			return niceAppName(app.getProcessID(), app.getProcessName());
+			return niceAppName(liveData.getProcessID(), liveData.getProcessName());
 		} catch (Exception e) {
-			e.printStackTrace();
-			return app.toString();
+			log.error("", e);
+			return liveData.toString();
 		}
 	}
 
@@ -187,6 +197,27 @@ public class LiveHoverUtils {
 			return ImmutableList.of();
 		}
 
+	}
+
+	@SuppressWarnings("unchecked")
+	public static List<CodeLens> createCodeLensForMethodParameters(SpringProcessLiveData liveData, IJavaProject project, MethodDeclaration method, TextDocument doc, List<LiveBean> wiredBeans) {
+		ImmutableList.Builder<CodeLens> builder = ImmutableList.builder();
+		method.parameters().forEach(p -> {
+			if (p instanceof SingleVariableDeclaration) {
+				SingleVariableDeclaration parameter = (SingleVariableDeclaration) p;
+				List<LiveBean> parameterMatchingBean = AutowiredHoverProvider.findAutowiredBeans(project, parameter, wiredBeans);
+				if (parameterMatchingBean.size() == 0) {
+					log.warn("No Live Bean matching parameter `" + parameter.getName().getIdentifier() + " for method " + method);
+				} else {
+					try {
+						builder.add(new CodeLens(ASTUtils.nodeRegion(doc, parameter.getName()).asRange()));
+					} catch (BadLocationException e) {
+						// ignore
+					}
+				}
+			}
+		});
+		return builder.build();
 	}
 
 	public static StringBuilder createBeansTitlePlainText(Collection<LiveBean> beans, String prefix, int maxInlineBeansStringLength, String beansSeparator) {
